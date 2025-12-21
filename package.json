@@ -1,0 +1,26 @@
+{
+  "name": "sentience-ts",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Sentience AI Agent Browser Automation",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "example:hello": "ts-node examples/hello.ts",
+    "example:basic": "ts-node examples/basic-agent.ts"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0",
+    "jest": "^29.0.0",
+    "@types/jest": "^29.0.0",
+    "ts-jest": "^29.0.0"
+  }
+}
+
