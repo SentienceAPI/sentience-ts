@@ -34,22 +34,44 @@ export class SentienceBrowser {
   }
 
   async start(): Promise<void> {
-    // Get extension source path (relative to project root)
+    // Try to find extension in multiple locations:
+    // 1. Embedded extension (src/extension/) - for production/CI
+    // 2. Development mode (../sentience-chrome/) - for local development
+    
     // Handle both ts-node (src/) and compiled (dist/src/) cases
+    let sdkRoot: string;
     let repoRoot: string;
     if (__dirname.includes('dist')) {
-      // Compiled: dist/src/ -> go up 3 levels to project root (Sentience/)
-      repoRoot = path.resolve(__dirname, '../../..');
+      // Compiled: dist/src/ -> go up 2 levels to sdk-ts/
+      sdkRoot = path.resolve(__dirname, '../..');
+      // Go up 1 more level to project root (Sentience/)
+      repoRoot = path.resolve(sdkRoot, '..');
     } else {
-      // ts-node: src/ -> go up 2 levels to project root (Sentience/)
-      repoRoot = path.resolve(__dirname, '../..');
+      // ts-node: src/ -> go up 1 level to sdk-ts/
+      sdkRoot = path.resolve(__dirname, '..');
+      // Go up 1 more level to project root (Sentience/)
+      repoRoot = path.resolve(sdkRoot, '..');
     }
-    const extensionSource = path.join(repoRoot, 'sentience-chrome');
-
-    if (!fs.existsSync(extensionSource)) {
+    
+    // Check for embedded extension first (production/CI)
+    const embeddedExtension = path.join(sdkRoot, 'src', 'extension');
+    
+    // Check for development extension (local development)
+    const devExtension = path.join(repoRoot, 'sentience-chrome');
+    
+    // Prefer embedded extension, fall back to dev extension
+    let extensionSource: string;
+    if (fs.existsSync(embeddedExtension) && fs.existsSync(path.join(embeddedExtension, 'manifest.json'))) {
+      extensionSource = embeddedExtension;
+    } else if (fs.existsSync(devExtension) && fs.existsSync(path.join(devExtension, 'manifest.json'))) {
+      extensionSource = devExtension;
+    } else {
       throw new Error(
-        `Extension not found at ${extensionSource}. ` +
-        'Make sure sentience-chrome directory exists.'
+        `Extension not found. Checked:\n` +
+        `  1. ${embeddedExtension}\n` +
+        `  2. ${devExtension}\n` +
+        'Make sure extension files are available. ' +
+        'For development: cd ../sentience-chrome && ./build.sh'
       );
     }
 
@@ -87,7 +109,8 @@ export class SentienceBrowser {
     if (!fs.existsSync(pkgSource)) {
       throw new Error(
         `WASM package directory not found at ${pkgSource}\n` +
-        'Make sure to build the extension: cd sentience-chrome && ./build.sh'
+        'Make sure extension files are available. ' +
+        'For development: cd ../sentience-chrome && ./build.sh'
       );
     }
     
@@ -99,7 +122,8 @@ export class SentienceBrowser {
         `WASM files not found. Expected:\n` +
         `  - ${wasmJs}\n` +
         `  - ${wasmBinary}\n` +
-        'Make sure to build the extension: cd sentience-chrome && ./build.sh'
+        'Make sure extension files are available. ' +
+        'For development: cd ../sentience-chrome && ./build.sh'
       );
     }
     

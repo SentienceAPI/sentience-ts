@@ -1,0 +1,123 @@
+name: Sync Extension from sentience-chrome
+
+on:
+  repository_dispatch:
+    types: [extension-updated]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag from sentience-chrome (e.g., v1.0.0)'
+        required: true
+        type: string
+  schedule:
+    # Check for new releases daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  sync-extension:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      
+    steps:
+    - name: Checkout sdk-ts
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Determine release tag
+      id: release
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          TAG="${{ github.event.inputs.release_tag }}"
+        elif [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+          TAG="${{ github.event.client_payload.release_tag }}"
+        else
+          # Scheduled check - get latest release
+          TAG=$(curl -s https://api.github.com/repos/${{ secrets.SENTIENCE_CHROME_REPO }}/releases/latest | jq -r '.tag_name // empty')
+        fi
+        
+        if [ -z "$TAG" ] || [ "$TAG" == "null" ]; then
+          echo "No release found, skipping"
+          echo "skip=true" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+        echo "Release tag: $TAG"
+        
+    - name: Download extension files
+      if: steps.release.outputs.skip != 'true'
+      run: |
+        TAG="${{ steps.release.outputs.tag }}"
+        REPO="${{ secrets.SENTIENCE_CHROME_REPO }}"
+        
+        # Download release assets
+        mkdir -p extension-temp
+        cd extension-temp
+        
+        # Download each file from release
+        curl -L -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
+          "https://api.github.com/repos/$REPO/releases/tags/$TAG" | \
+          jq -r '.assets[] | select(.name | endswith(".js") or endswith(".wasm") or endswith(".json") or endswith(".d.ts")) | .browser_download_url' | \
+          while read url; do
+            filename=$(basename "$url")
+            curl -L -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" "$url" -o "$filename"
+          done
+        
+    - name: Copy extension files
+      if: steps.release.outputs.skip != 'true'
+      run: |
+        # Create extension directory structure
+        mkdir -p src/extension/pkg
+        
+        # Copy extension files
+        cp extension-temp/manifest.json src/extension/ 2>/dev/null || echo "manifest.json not found in release"
+        cp extension-temp/content.js src/extension/ 2>/dev/null || echo "content.js not found in release"
+        cp extension-temp/background.js src/extension/ 2>/dev/null || echo "background.js not found in release"
+        cp extension-temp/injected_api.js src/extension/ 2>/dev/null || echo "injected_api.js not found in release"
+        
+        # Copy WASM files
+        cp extension-temp/pkg/sentience_core.js src/extension/pkg/ 2>/dev/null || echo "sentience_core.js not found"
+        cp extension-temp/pkg/sentience_core_bg.wasm src/extension/pkg/ 2>/dev/null || echo "sentience_core_bg.wasm not found"
+        cp extension-temp/pkg/*.d.ts src/extension/pkg/ 2>/dev/null || echo "Type definitions not found"
+        
+    - name: Check for changes
+      if: steps.release.outputs.skip != 'true'
+      id: changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add src/extension/ || true
+        if git diff --staged --quiet; then
+          echo "changed=false" >> $GITHUB_OUTPUT
+          echo "No changes detected"
+        else
+          echo "changed=true" >> $GITHUB_OUTPUT
+          echo "Changes detected"
+        fi
+        
+    - name: Create Pull Request
+      if: steps.release.outputs.skip != 'true' && steps.changes.outputs.changed == 'true'
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "chore: sync extension files from sentience-chrome ${{ steps.release.outputs.tag }}"
+        title: "Sync Extension: ${{ steps.release.outputs.tag }}"
+        body: |
+          This PR syncs extension files from sentience-chrome release ${{ steps.release.outputs.tag }}.
+          
+          **Files updated:**
+          - Extension manifest and scripts
+          - WASM binary and bindings
+          
+          **Source:** [sentience-chrome release ${{ steps.release.outputs.tag }}](${{ secrets.SENTIENCE_CHROME_REPO }}/releases/tag/${{ steps.release.outputs.tag }})
+        branch: sync-extension-${{ steps.release.outputs.tag }}
+        delete-branch: true
+
