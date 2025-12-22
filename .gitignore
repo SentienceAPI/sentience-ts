@@ -41,3 +41,6 @@ Thumbs.db
 snapshot_*.json
 *.test.js.map
 
+# Temporary directories from sync workflows
+extension-temp/
+
