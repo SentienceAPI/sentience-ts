@@ -111,6 +111,19 @@ jobs:
         echo ""
         echo "Directory structure:"
         ls -laR . | head -50
+        echo ""
+        echo "🔍 Verifying critical files:"
+        if [ -f "manifest.json" ]; then
+          echo "✅ manifest.json found ($(wc -c < manifest.json) bytes)"
+          head -5 manifest.json
+        else
+          echo "❌ manifest.json NOT FOUND"
+        fi
+        if [ -d "pkg" ]; then
+          echo "✅ pkg directory found with $(ls -1 pkg | wc -l) files"
+        else
+          echo "❌ pkg directory NOT FOUND"
+        fi
         
     - name: Copy extension files
       if: steps.release.outputs.skip != 'true'
@@ -121,11 +134,42 @@ jobs:
         # Copy extension files (handle both root and extension-package/ subdirectory)
         # Check root first, then extension-package/ subdirectory
         if [ -f "extension-temp/manifest.json" ]; then
-          cp extension-temp/manifest.json src/extension/
+          size=$(wc -c < extension-temp/manifest.json)
+          if [ "$size" -gt 0 ]; then
+            echo "✅ Copying manifest.json ($size bytes)"
+            cp extension-temp/manifest.json src/extension/
+            # Verify copy
+            if [ -f "src/extension/manifest.json" ] && [ "$(wc -c < src/extension/manifest.json)" -gt 0 ]; then
+              echo "✅ manifest.json copied successfully"
+            else
+              echo "❌ manifest.json copy failed or file is empty"
+              exit 1
+            fi
+          else
+            echo "❌ manifest.json is empty ($size bytes)"
+            exit 1
+          fi
         elif [ -f "extension-temp/extension-package/manifest.json" ]; then
-          cp extension-temp/extension-package/manifest.json src/extension/
+          size=$(wc -c < extension-temp/extension-package/manifest.json)
+          if [ "$size" -gt 0 ]; then
+            echo "✅ Copying manifest.json from extension-package/ ($size bytes)"
+            cp extension-temp/extension-package/manifest.json src/extension/
+            # Verify copy
+            if [ -f "src/extension/manifest.json" ] && [ "$(wc -c < src/extension/manifest.json)" -gt 0 ]; then
+              echo "✅ manifest.json copied successfully"
+            else
+              echo "❌ manifest.json copy failed or file is empty"
+              exit 1
+            fi
+          else
+            echo "❌ manifest.json is empty ($size bytes)"
+            exit 1
+          fi
         else
-          echo "⚠️ manifest.json not found"
+          echo "❌ manifest.json not found in extension-temp/"
+          echo "Available files:"
+          find extension-temp -type f | head -20
+          exit 1
         fi
         
         if [ -f "extension-temp/content.js" ]; then
