@@ -80,7 +80,10 @@ jobs:
         fi
 
         echo "  Downloading from: $TARBALL_URL"
-        curl -L -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
+        # Use Accept header for private repos to get the asset directly
+        curl -L \
+          -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
+          -H "Accept: application/octet-stream" \
           "$TARBALL_URL" -o extension-files.tar.gz
 
         # Verify download
