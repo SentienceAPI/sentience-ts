@@ -41,17 +41,24 @@ jobs:
           TAG="${{ github.event.client_payload.release_tag }}"
         else
           # Scheduled check - get latest release
-          TAG=$(curl -s https://api.github.com/repos/${{ secrets.SENTIENCE_CHROME_REPO }}/releases/latest | jq -r '.tag_name // empty')
+          TAG=$(curl -s -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
+            "https://api.github.com/repos/${{ secrets.SENTIENCE_CHROME_REPO }}/releases/latest" | jq -r '.tag_name // empty')
+          
+          # Check if we already processed this tag (check if branch exists)
+          if git ls-remote --exit-code --heads origin "sync-extension-$TAG"; then
+            echo "Branch for $TAG already exists, skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
         fi
         
-        if [ -z "$TAG" ] || [ "$TAG" == "null" ]; then
-          echo "No release found, skipping"
-          echo "skip=true" >> $GITHUB_OUTPUT
-          exit 0
+        if [ -z "$TAG" ]; then
+          echo "Could not determine release tag."
+          exit 1
         fi
         
+        echo "Syncing tag: $TAG"
         echo "tag=$TAG" >> $GITHUB_OUTPUT
-        echo "Release tag: $TAG"
         
     - name: Download extension files
       if: steps.release.outputs.skip != 'true'
@@ -59,229 +66,86 @@ jobs:
         TAG="${{ steps.release.outputs.tag }}"
         REPO="${{ secrets.SENTIENCE_CHROME_REPO }}"
         
-        # Download release assets
+        # Setup temp directory
         mkdir -p extension-temp
         cd extension-temp
         
-        # Download individual files from release (reliable method - no zip)
-        echo "📁 Downloading individual files from release..."
-        echo "Available release assets:"
-        curl -s -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
-          "https://api.github.com/repos/$REPO/releases/tags/$TAG" | \
-          jq -r '.assets[] | select(.name | endswith(".js") or endswith(".wasm") or endswith(".json") or endswith(".d.ts")) | .name' || true
+        echo "⬇️ Fetching release assets for $TAG from $REPO..."
         
+        # 1. Get the URL for 'extension-files.tar.gz' specifically
+        # We query the release assets API and filter by name
+        ASSET_URL=$(curl -s -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
+          "https://api.github.com/repos/$REPO/releases/tags/$TAG" | \
+          jq -r '.assets[] | select(.name == "extension-files.tar.gz") | .browser_download_url')
+          
+        if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
+          echo "❌ Critical Error: extension-files.tar.gz not found in release assets!"
+          echo "Debug: Listing available assets..."
+          curl -s -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
+            "https://api.github.com/repos/$REPO/releases/tags/$TAG" | jq -r '.assets[].name'
+          exit 1
+        fi
+
+        # 2. Download the tarball
+        echo "📦 Downloading tarball from $ASSET_URL..."
         curl -L -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
-          "https://api.github.com/repos/$REPO/releases/tags/$TAG" | \
-          jq -r '.assets[] | select(.name | endswith(".js") or endswith(".wasm") or endswith(".json") or endswith(".d.ts")) | "\(.browser_download_url)|\(.name)"' | \
-          while IFS='|' read -r url name; do
-            if [ -n "$url" ] && [ "$url" != "null" ] && [ -n "$name" ]; then
-              # Handle asset names that might have paths like "pkg/sentience_core.js" or "extension-package/manifest.json"
-              # GitHub releases might preserve directory structure in asset names
-              # Strip "extension-package/" prefix if present, as we'll handle it in copy step
-              if [[ "$name" == extension-package/* ]]; then
-                # Asset name is "extension-package/manifest.json" - strip prefix
-                filename="${name#extension-package/}"
-                dir=$(dirname "$filename")
-                if [ "$dir" != "." ]; then
-                  mkdir -p "$dir"
-                fi
-                echo "  Downloading $name -> $filename"
-                curl -L -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" "$url" -o "$filename"
-              elif [[ "$name" == pkg/* ]]; then
-                # Asset name is "pkg/sentience_core.js" - create pkg directory
-                mkdir -p pkg
-                filename=$(basename "$name")
-                echo "  Downloading $name -> pkg/$filename"
-                curl -L -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" "$url" -o "pkg/$filename"
-              else
-                # Asset name is just "manifest.json" - put at root
-                dir=$(dirname "$name")
-                if [ "$dir" != "." ]; then
-                  mkdir -p "$dir"
-                fi
-                echo "  Downloading $name"
-                curl -L -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" "$url" -o "$name"
-              fi
-            fi
-          done
+             -H "Accept: application/octet-stream" \
+             "$ASSET_URL" -o extension.tar.gz
+
+        # 3. Extract it
+        echo "📂 Extracting..."
+        tar -xzf extension.tar.gz
+        rm extension.tar.gz
         
-        # Verify downloaded files
-        echo "📋 Downloaded files structure:"
-        find . -type f -name "*.js" -o -name "*.wasm" -o -name "*.json" | sort
-        echo ""
-        echo "Directory structure:"
-        ls -laR . | head -50
-        echo ""
-        echo "🔍 Verifying critical files:"
-        if [ -f "manifest.json" ]; then
-          echo "✅ manifest.json found ($(wc -c < manifest.json) bytes)"
-          head -5 manifest.json
-        else
-          echo "❌ manifest.json NOT FOUND"
-        fi
-        if [ -d "pkg" ]; then
-          echo "✅ pkg directory found with $(ls -1 pkg | wc -l) files"
-        else
-          echo "❌ pkg directory NOT FOUND"
+        # 4. Verify extraction
+        echo "✅ Extraction complete. Contents:"
+        ls -la
+        
+        if [ ! -f "manifest.json" ]; then
+          echo "❌ Error: manifest.json missing after extraction"
+          exit 1
         fi
         
-    - name: Copy extension files
+    - name: Update extension files
       if: steps.release.outputs.skip != 'true'
       run: |
-        # Create extension directory structure
-        mkdir -p src/extension/pkg
+        # Target directory in sdk-ts
+        TARGET_DIR="sentience-chrome"
         
-        # Copy extension files (handle both root and extension-package/ subdirectory)
-        # Check root first, then extension-package/ subdirectory
-        if [ -f "extension-temp/manifest.json" ]; then
-          size=$(wc -c < extension-temp/manifest.json)
-          if [ "$size" -gt 0 ]; then
-            echo "✅ Copying manifest.json ($size bytes)"
-            cp extension-temp/manifest.json src/extension/
-            # Verify copy
-            if [ -f "src/extension/manifest.json" ] && [ "$(wc -c < src/extension/manifest.json)" -gt 0 ]; then
-              echo "✅ manifest.json copied successfully"
-            else
-              echo "❌ manifest.json copy failed or file is empty"
-              exit 1
-            fi
-          else
-            echo "❌ manifest.json is empty ($size bytes)"
-            exit 1
-          fi
-        elif [ -f "extension-temp/extension-package/manifest.json" ]; then
-          size=$(wc -c < extension-temp/extension-package/manifest.json)
-          if [ "$size" -gt 0 ]; then
-            echo "✅ Copying manifest.json from extension-package/ ($size bytes)"
-            cp extension-temp/extension-package/manifest.json src/extension/
-            # Verify copy
-            if [ -f "src/extension/manifest.json" ] && [ "$(wc -c < src/extension/manifest.json)" -gt 0 ]; then
-              echo "✅ manifest.json copied successfully"
-            else
-              echo "❌ manifest.json copy failed or file is empty"
-              exit 1
-            fi
-          else
-            echo "❌ manifest.json is empty ($size bytes)"
-            exit 1
-          fi
-        else
-          echo "❌ manifest.json not found in extension-temp/"
-          echo "Available files:"
-          find extension-temp -type f | head -20
+        # Ensure target directory exists and is clean
+        rm -rf "$TARGET_DIR"
+        mkdir -p "$TARGET_DIR"
+        
+        # Copy files from temp directory
+        cp -r extension-temp/* "$TARGET_DIR/"
+        
+        # Verify copy
+        if [ ! -f "$TARGET_DIR/manifest.json" ]; then
+          echo "❌ Failed to copy manifest.json to $TARGET_DIR"
           exit 1
         fi
         
-        if [ -f "extension-temp/content.js" ]; then
-          cp extension-temp/content.js src/extension/
-        elif [ -f "extension-temp/extension-package/content.js" ]; then
-          cp extension-temp/extension-package/content.js src/extension/
-        else
-          echo "⚠️ content.js not found"
-        fi
-        
-        if [ -f "extension-temp/background.js" ]; then
-          cp extension-temp/background.js src/extension/
-        elif [ -f "extension-temp/extension-package/background.js" ]; then
-          cp extension-temp/extension-package/background.js src/extension/
-        else
-          echo "⚠️ background.js not found"
-        fi
-        
-        if [ -f "extension-temp/injected_api.js" ]; then
-          cp extension-temp/injected_api.js src/extension/
-        elif [ -f "extension-temp/extension-package/injected_api.js" ]; then
-          cp extension-temp/extension-package/injected_api.js src/extension/
-        else
-          echo "⚠️ injected_api.js not found"
-        fi
-        
-        # Copy WASM files - try multiple locations and patterns
-        echo "🔍 Searching for pkg directory and WASM files..."
-        
-        # Check all possible locations
-        if [ -d "extension-temp/pkg" ]; then
-          echo "✅ Found pkg directory at extension-temp/pkg"
-          cp -r extension-temp/pkg/* src/extension/pkg/ 2>/dev/null || true
-        elif [ -d "extension-temp/extension-package/pkg" ]; then
-          echo "✅ Found pkg directory at extension-temp/extension-package/pkg"
-          cp -r extension-temp/extension-package/pkg/* src/extension/pkg/ 2>/dev/null || true
-        else
-          echo "⚠️ pkg directory not found, searching for individual files..."
-          
-          # Search for files in various locations
-          find extension-temp -name "sentience_core.js" -type f | while read file; do
-            echo "  Found: $file"
-            cp "$file" src/extension/pkg/ 2>/dev/null || true
-          done
-          
-          find extension-temp -name "sentience_core_bg.wasm" -type f | while read file; do
-            echo "  Found: $file"
-            cp "$file" src/extension/pkg/ 2>/dev/null || true
-          done
-          
-          find extension-temp -name "*.d.ts" -type f | while read file; do
-            echo "  Found: $file"
-            cp "$file" src/extension/pkg/ 2>/dev/null || true
-          done
-        fi
-        
-        # Verify copied files
-        echo "📋 Copied files:"
-        echo "Extension root:"
-        ls -la src/extension/ || echo "⚠️ Extension directory empty"
-        echo ""
-        echo "WASM files (pkg directory):"
-        if [ -d "src/extension/pkg" ]; then
-          ls -la src/extension/pkg/ || echo "⚠️ pkg directory empty"
-        else
-          echo "❌ ERROR: pkg directory not created!"
-          exit 1
-        fi
-        
-        # Verify required files exist
-        if [ ! -f "src/extension/pkg/sentience_core.js" ]; then
-          echo "❌ ERROR: sentience_core.js not found!"
-          exit 1
-        fi
-        if [ ! -f "src/extension/pkg/sentience_core_bg.wasm" ]; then
-          echo "❌ ERROR: sentience_core_bg.wasm not found!"
-          exit 1
-        fi
-        echo "✅ All required WASM files verified"
-        
-        # Clean up temporary directory
-        cd ..
+        # Cleanup
         rm -rf extension-temp
-        echo "🧹 Cleaned up extension-temp directory"
+        
+        echo "✅ Extension files updated in $TARGET_DIR"
+        ls -la "$TARGET_DIR"
         
     - name: Check for changes
       if: steps.release.outputs.skip != 'true'
       id: changes
       run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
+        git add sentience-chrome/
         
-        # Show what files exist before adding
-        echo "📋 Files in src/extension before git add:"
-        find src/extension -type f | sort || echo "No files found"
-        
-        # Add all files including binary files
-        # Use -f to force add in case files are in .gitignore
-        git add -f src/extension/ || true
-        
-        # Show what was staged
-        echo "📋 Staged files:"
-        git diff --staged --name-only || echo "No staged files"
-        
-        # Check if there are actual changes
+        # Check if anything actually changed
         if git diff --staged --quiet; then
+          echo "No changes detected."
           echo "changed=false" >> $GITHUB_OUTPUT
-          echo "No changes detected"
         else
+          echo "Changes detected."
           echo "changed=true" >> $GITHUB_OUTPUT
-          echo "Changes detected"
-          # Show file sizes to verify binary files are included
+          
+          # Show staged files to verify binary files are included
           echo "📊 Staged file sizes:"
           git diff --staged --name-only | while read file; do
             if [ -f "$file" ]; then
@@ -295,9 +159,8 @@ jobs:
       if: steps.release.outputs.skip != 'true' && steps.changes.outputs.changed == 'true'
       uses: peter-evans/create-pull-request@v5
       with:
-        # Use PR_TOKEN if available (for repos with org restrictions), otherwise use GITHUB_TOKEN
-        # To use PAT: create secret named PR_TOKEN with a Personal Access Token that has 'repo' scope
-        token: ${{ secrets.PR_TOKEN }}
+        # Use PR_TOKEN if available, otherwise GITHUB_TOKEN
+        token: ${{ secrets.PR_TOKEN || secrets.GITHUB_TOKEN }}
         commit-message: "chore: sync extension files from sentience-chrome ${{ steps.release.outputs.tag }}"
         title: "Sync Extension: ${{ steps.release.outputs.tag }}"
         body: |
@@ -313,4 +176,3 @@ jobs:
         labels: |
           automated
           extension-sync
-
