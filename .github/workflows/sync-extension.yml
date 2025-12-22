@@ -198,6 +198,11 @@ jobs:
         fi
         echo "✅ All required WASM files verified"
         
+        # Clean up temporary directory
+        cd ..
+        rm -rf extension-temp
+        echo "🧹 Cleaned up extension-temp directory"
+        
     - name: Check for changes
       if: steps.release.outputs.skip != 'true'
       id: changes

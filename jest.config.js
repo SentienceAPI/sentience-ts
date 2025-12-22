@@ -23,5 +23,7 @@ module.exports = {
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
+  // Ignore temporary directories from sync workflows
+  modulePathIgnorePatterns: ['<rootDir>/extension-temp', '<rootDir>/.github'],
 };
 
