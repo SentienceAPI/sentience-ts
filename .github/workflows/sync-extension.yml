@@ -65,25 +65,44 @@ jobs:
         
         # Download individual files from release (reliable method - no zip)
         echo "📁 Downloading individual files from release..."
+        echo "Available release assets:"
+        curl -s -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
+          "https://api.github.com/repos/$REPO/releases/tags/$TAG" | \
+          jq -r '.assets[] | select(.name | endswith(".js") or endswith(".wasm") or endswith(".json") or endswith(".d.ts")) | .name' || true
+        
         curl -L -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
           "https://api.github.com/repos/$REPO/releases/tags/$TAG" | \
           jq -r '.assets[] | select(.name | endswith(".js") or endswith(".wasm") or endswith(".json") or endswith(".d.ts")) | "\(.browser_download_url)|\(.name)"' | \
           while IFS='|' read -r url name; do
             if [ -n "$url" ] && [ "$url" != "null" ] && [ -n "$name" ]; then
-              # Preserve directory structure from asset name
-              # If name contains '/', create directories
-              dir=$(dirname "$name")
-              if [ "$dir" != "." ]; then
-                mkdir -p "$dir"
+              # Handle asset names that might have paths like "pkg/sentience_core.js"
+              # GitHub releases might preserve directory structure in asset names
+              # If name starts with "pkg/", we want to preserve that structure
+              # If name is just a filename, put it at root
+              if [[ "$name" == pkg/* ]]; then
+                # Asset name is "pkg/sentience_core.js" - create pkg directory
+                mkdir -p pkg
+                filename=$(basename "$name")
+                echo "  Downloading $name -> pkg/$filename"
+                curl -L -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" "$url" -o "pkg/$filename"
+              else
+                # Asset name is just "manifest.json" - put at root
+                dir=$(dirname "$name")
+                if [ "$dir" != "." ]; then
+                  mkdir -p "$dir"
+                fi
+                echo "  Downloading $name"
+                curl -L -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" "$url" -o "$name"
               fi
-              echo "  Downloading $name..."
-              curl -L -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" "$url" -o "$name"
             fi
           done
         
         # Verify downloaded files
-        echo "📋 Downloaded files:"
-        ls -la
+        echo "📋 Downloaded files structure:"
+        find . -type f -name "*.js" -o -name "*.wasm" -o -name "*.json" | sort
+        echo ""
+        echo "Directory structure:"
+        ls -laR . | head -50
         
     - name: Copy extension files
       if: steps.release.outputs.skip != 'true'
@@ -125,34 +144,59 @@ jobs:
           echo "⚠️ injected_api.js not found"
         fi
         
-        # Copy WASM files (check both locations)
-        if [ -f "extension-temp/pkg/sentience_core.js" ]; then
-          cp extension-temp/pkg/sentience_core.js src/extension/pkg/
-        elif [ -f "extension-temp/extension-package/pkg/sentience_core.js" ]; then
-          cp extension-temp/extension-package/pkg/sentience_core.js src/extension/pkg/
-        else
-          echo "⚠️ sentience_core.js not found"
-        fi
+        # Copy WASM files - try multiple locations and patterns
+        echo "🔍 Searching for pkg directory and WASM files..."
         
-        if [ -f "extension-temp/pkg/sentience_core_bg.wasm" ]; then
-          cp extension-temp/pkg/sentience_core_bg.wasm src/extension/pkg/
-        elif [ -f "extension-temp/extension-package/pkg/sentience_core_bg.wasm" ]; then
-          cp extension-temp/extension-package/pkg/sentience_core_bg.wasm src/extension/pkg/
-        else
-          echo "⚠️ sentience_core_bg.wasm not found"
-        fi
-        
-        # Copy TypeScript definitions
+        # Check all possible locations
         if [ -d "extension-temp/pkg" ]; then
-          cp extension-temp/pkg/*.d.ts src/extension/pkg/ 2>/dev/null || echo "⚠️ Type definitions not found"
+          echo "✅ Found pkg directory at extension-temp/pkg"
+          cp -r extension-temp/pkg/* src/extension/pkg/ 2>/dev/null || true
         elif [ -d "extension-temp/extension-package/pkg" ]; then
-          cp extension-temp/extension-package/pkg/*.d.ts src/extension/pkg/ 2>/dev/null || echo "⚠️ Type definitions not found"
+          echo "✅ Found pkg directory at extension-temp/extension-package/pkg"
+          cp -r extension-temp/extension-package/pkg/* src/extension/pkg/ 2>/dev/null || true
+        else
+          echo "⚠️ pkg directory not found, searching for individual files..."
+          
+          # Search for files in various locations
+          find extension-temp -name "sentience_core.js" -type f | while read file; do
+            echo "  Found: $file"
+            cp "$file" src/extension/pkg/ 2>/dev/null || true
+          done
+          
+          find extension-temp -name "sentience_core_bg.wasm" -type f | while read file; do
+            echo "  Found: $file"
+            cp "$file" src/extension/pkg/ 2>/dev/null || true
+          done
+          
+          find extension-temp -name "*.d.ts" -type f | while read file; do
+            echo "  Found: $file"
+            cp "$file" src/extension/pkg/ 2>/dev/null || true
+          done
         fi
         
         # Verify copied files
         echo "📋 Copied files:"
-        ls -la src/extension/
-        ls -la src/extension/pkg/ 2>/dev/null || echo "⚠️ pkg directory not created"
+        echo "Extension root:"
+        ls -la src/extension/ || echo "⚠️ Extension directory empty"
+        echo ""
+        echo "WASM files (pkg directory):"
+        if [ -d "src/extension/pkg" ]; then
+          ls -la src/extension/pkg/ || echo "⚠️ pkg directory empty"
+        else
+          echo "❌ ERROR: pkg directory not created!"
+          exit 1
+        fi
+        
+        # Verify required files exist
+        if [ ! -f "src/extension/pkg/sentience_core.js" ]; then
+          echo "❌ ERROR: sentience_core.js not found!"
+          exit 1
+        fi
+        if [ ! -f "src/extension/pkg/sentience_core_bg.wasm" ]; then
+          echo "❌ ERROR: sentience_core_bg.wasm not found!"
+          exit 1
+        fi
+        echo "✅ All required WASM files verified"
         
     - name: Check for changes
       if: steps.release.outputs.skip != 'true'
@@ -160,13 +204,34 @@ jobs:
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add src/extension/ || true
+        
+        # Show what files exist before adding
+        echo "📋 Files in src/extension before git add:"
+        find src/extension -type f | sort || echo "No files found"
+        
+        # Add all files including binary files
+        # Use -f to force add in case files are in .gitignore
+        git add -f src/extension/ || true
+        
+        # Show what was staged
+        echo "📋 Staged files:"
+        git diff --staged --name-only || echo "No staged files"
+        
+        # Check if there are actual changes
         if git diff --staged --quiet; then
           echo "changed=false" >> $GITHUB_OUTPUT
           echo "No changes detected"
         else
           echo "changed=true" >> $GITHUB_OUTPUT
           echo "Changes detected"
+          # Show file sizes to verify binary files are included
+          echo "📊 Staged file sizes:"
+          git diff --staged --name-only | while read file; do
+            if [ -f "$file" ]; then
+              size=$(ls -lh "$file" | awk '{print $5}')
+              echo "  $file: $size"
+            fi
+          done
         fi
         
     - name: Create Pull Request
