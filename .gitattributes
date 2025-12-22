@@ -1,0 +1,13 @@
+# Binary files
+*.wasm binary
+*.woff binary
+*.woff2 binary
+
+# Text files that should use LF line endings
+*.js text eol=lf
+*.json text eol=lf
+*.ts text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
