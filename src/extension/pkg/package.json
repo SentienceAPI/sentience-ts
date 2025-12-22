@@ -1,0 +1,15 @@
+{
+  "name": "sentience_core",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "sentience_core_bg.wasm",
+    "sentience_core.js",
+    "sentience_core.d.ts"
+  ],
+  "main": "sentience_core.js",
+  "types": "sentience_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
