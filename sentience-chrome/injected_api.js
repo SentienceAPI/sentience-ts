@@ -69,6 +69,24 @@
         return '';
     }
 
+    // --- HELPER: Safe String Converter ---
+    // Converts any value (including SVGAnimatedString) to a plain string or null
+    // This prevents WASM deserialization errors on SVG elements
+    function toSafeString(value) {
+        if (value === null || value === undefined) return null;
+        if (typeof value === 'string') return value;
+        // Handle SVGAnimatedString (has baseVal property)
+        if (value && typeof value === 'object' && 'baseVal' in value) {
+            return typeof value.baseVal === 'string' ? value.baseVal : null;
+        }
+        // Convert other types to string
+        try {
+            return String(value);
+        } catch (e) {
+            return null;
+        }
+    }
+
     // --- HELPER: Viewport Check (NEW) ---
     function isInViewport(rect) {
         return (
@@ -358,26 +376,26 @@
                     tag: el.tagName.toLowerCase(),
                     rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
                     styles: {
-                        display: style.display,
-                        visibility: style.visibility,
-                        opacity: style.opacity,
-                        z_index: String(style.zIndex || "auto"),  // Force string conversion
-                        bg_color: style.backgroundColor,
-                        color: style.color,
-                        cursor: style.cursor,
-                        font_weight: String(style.fontWeight),  // Force string conversion
-                        font_size: style.fontSize
+                        display: toSafeString(style.display),
+                        visibility: toSafeString(style.visibility),
+                        opacity: toSafeString(style.opacity),
+                        z_index: toSafeString(style.zIndex || "auto"),
+                        bg_color: toSafeString(style.backgroundColor),
+                        color: toSafeString(style.color),
+                        cursor: toSafeString(style.cursor),
+                        font_weight: toSafeString(style.fontWeight),
+                        font_size: toSafeString(style.fontSize)
                     },
                     attributes: {
-                        role: el.getAttribute('role'),
-                        type_: el.getAttribute('type'),
-                        aria_label: el.getAttribute('aria-label'),
-                        // Convert SVGAnimatedString to string for SVG elements
-                        href: el.href?.baseVal || el.href || null,
-                        class: getClassName(el) || null
+                        role: toSafeString(el.getAttribute('role')),
+                        type_: toSafeString(el.getAttribute('type')),
+                        aria_label: toSafeString(el.getAttribute('aria-label')),
+                        // Handle both regular href and SVGAnimatedString href
+                        href: toSafeString(el.href),
+                        class: toSafeString(getClassName(el))
                     },
-                    // Pass to WASM
-                    text: textVal || null,
+                    // Pass to WASM - ensure text is also a safe string
+                    text: toSafeString(textVal),
                     in_viewport: inView,
                     is_occluded: occluded
                 });
