@@ -1,105 +1,100 @@
 /**
- * Example: Google Search using ConversationalAgent (Level 3)
+ * Example: Conversational Google Search (Level 4 - Highest Abstraction)
  *
- * This demonstrates the highest abstraction level - full natural language conversation.
- * Just describe what you want, and the agent plans and executes automatically!
+ * This example demonstrates the ConversationalAgent, which accepts
+ * natural language instructions and automatically plans and executes
+ * browser automation tasks.
  *
- * Run with:
- *   npx ts-node examples/conversational-google-search.ts
+ * Run with: npm run example:conversational-google
  */
 
-import { SentienceBrowser, ConversationalAgent, OpenAIProvider } from '../src';
+import { SentienceBrowser } from '../src/browser';
+import { ConversationalAgent } from '../src/conversational-agent';
+import { OpenAIProvider } from '../src/llm-provider';
 
 async function main() {
-  const openaiKey = process.env.OPENAI_API_KEY;
-
-  if (!openaiKey) {
-    console.error('❌ Error: OPENAI_API_KEY environment variable not set');
-    console.log('Set it with: export OPENAI_API_KEY="your-key-here"');
+  // Check for API keys
+  if (!process.env.SENTIENCE_API_KEY) {
+    console.error('Error: SENTIENCE_API_KEY environment variable is required');
+    console.log('Set it with: export SENTIENCE_API_KEY=your-api-key');
     process.exit(1);
   }
 
-  // Initialize browser
+  if (!process.env.OPENAI_API_KEY) {
+    console.error('Error: OPENAI_API_KEY environment variable is required');
+    console.log('Set it with: export OPENAI_API_KEY=your-api-key');
+    process.exit(1);
+  }
+
+  console.log('Starting Conversational Google Search Example...\n');
+
+  // Create Sentience browser
   const browser = await SentienceBrowser.create({
     apiKey: process.env.SENTIENCE_API_KEY,
     headless: false
   });
 
-  // Initialize LLM provider
-  const llm = new OpenAIProvider(openaiKey, 'gpt-4o-mini');
+  // Create LLM provider
+  const llmProvider = new OpenAIProvider(process.env.OPENAI_API_KEY, 'gpt-4o');
 
   // Create conversational agent
-  const agent = new ConversationalAgent(browser, llm, true);
+  const agent = new ConversationalAgent({
+    llmProvider,
+    browser,
+    verbose: true
+  });
 
   try {
-    console.log('🔍 Conversational Google Search Demo\n');
-    console.log('Level 3: Natural Language Conversation\n');
-
-    // Navigate to Google first
-    await browser.getPage().goto('https://www.google.com');
-    await browser.getPage().waitForLoadState('networkidle');
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // Single natural language command - agent handles everything!
-    console.log('📝 User Request: "Search for best mechanical keyboards 2024"\n');
+    // Example 1: Simple search
+    console.log('\n=== Example 1: Simple Search ===');
     const response1 = await agent.execute(
-      'Search for best mechanical keyboards 2024 and tell me what you find'
+      "Go to Google and search for 'TypeScript tutorial'"
     );
+    console.log('\nAgent response:', response1);
 
-    console.log('\n' + '='.repeat(70));
-    console.log('Agent Response:');
-    console.log(response1);
-    console.log('='.repeat(70));
+    // Wait a moment to see the results
+    await page.waitForTimeout(3000);
 
-    // Wait a bit
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Example 2: Extract information
+    console.log('\n\n=== Example 2: Extract Information ===');
+    const response2 = await agent.execute(
+      "What are the top 3 search results?"
+    );
+    console.log('\nAgent response:', response2);
 
-    // Contextual follow-up (agent remembers previous actions)
-    console.log('\n📝 Follow-up Request: "Click the first result"\n');
-    const response2 = await agent.execute('Click the first non-ad result');
+    // Example 3: Contextual follow-up
+    console.log('\n\n=== Example 3: Contextual Follow-up ===');
+    const response3 = await agent.chat(
+      "Click on the first result"
+    );
+    console.log('\nAgent response:', response3);
 
-    console.log('\n' + '='.repeat(70));
-    console.log('Agent Response:');
-    console.log(response2);
-    console.log('='.repeat(70));
+    await browser.getPage().waitForTimeout(3000);
 
-    // Get session summary
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Example 4: Verification
+    console.log('\n\n=== Example 4: Verification ===');
+    const response4 = await agent.chat(
+      "Verify that we're now on a page about TypeScript"
+    );
+    console.log('\nAgent response:', response4);
+
+    // Get conversation summary
+    console.log('\n\n=== Conversation Summary ===');
     const summary = await agent.getSummary();
-
-    console.log('\n📊 Session Summary:');
     console.log(summary);
 
-    // Print token usage
+    // Show token stats
+    console.log('\n=== Token Statistics ===');
     const stats = agent.getTokenStats();
-    console.log('\n💰 Token Usage:');
-    console.log(`   Total tokens: ${stats.totalTokens}`);
-    console.log(`   Estimated cost: $${(stats.totalTokens / 1000000 * 0.15).toFixed(4)}`);
+    console.log('Total tokens used:', stats.totalTokens);
+    console.log('Average tokens per action:', stats.averageTokensPerAction);
 
-    // Print conversation history
-    const history = agent.getHistory();
-    console.log('\n📜 Conversation History:');
-    history.forEach((entry, i) => {
-      console.log(`\n${i + 1}. User: ${entry.user_input}`);
-      console.log(`   Agent: ${entry.response}`);
-      console.log(`   Duration: ${entry.duration_ms}ms`);
-      console.log(`   Steps executed: ${entry.results.length}`);
-    });
-
-    console.log('\n✨ Key Differences from Level 2 (SentienceAgent):');
-    console.log('   ✅ Natural language input AND output');
-    console.log('   ✅ Automatic multi-step planning');
-    console.log('   ✅ Conversational context awareness');
-    console.log('   ✅ Human-friendly responses');
-    console.log('   ⚠️  Higher LLM costs (2-3x Level 2)');
-    console.log('   ⚠️  Less control over individual steps');
-
+  } catch (error) {
+    console.error('Error during automation:', error);
   } finally {
+    // Clean up
     await browser.close();
   }
 }
 
-// Run if executed directly
-if (require.main === module) {
-  main().catch(console.error);
-}
+main();

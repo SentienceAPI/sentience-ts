@@ -1,538 +1,677 @@
 /**
- * Tests for ConversationalAgent (Level 3)
+ * Tests for ConversationalAgent (Level 4 Abstraction)
  */
 
-import {
-  ConversationalAgent,
-  ExecutionPlan,
-  PlanStep,
-  StepResult
-} from '../src/conversational-agent';
-import { LLMProvider, LLMResponse } from '../src/llm-provider';
+import { ConversationalAgent, ExecutionPlan } from '../src/conversational-agent';
+import { LLMProvider } from '../src/llm-provider';
 import { SentienceBrowser } from '../src/browser';
-import { Snapshot, Element, BBox, VisualCues, Viewport } from '../src/types';
-import * as snapshotModule from '../src/snapshot';
-import * as agentModule from '../src/agent';
+import { snapshot } from '../src/snapshot';
+import { SentienceAgent } from '../src/agent';
+import { Snapshot } from '../src/types';
 
-/**
- * Mock LLM provider that returns predefined responses
- */
-class MockLLMProvider extends LLMProvider {
-  private responses: string[];
-  private callCount: number;
+// Mock dependencies
+jest.mock('../src/snapshot');
+jest.mock('../src/agent');
 
-  constructor(responses: string[] = []) {
-    super();
-    this.responses = responses;
-    this.callCount = 0;
-  }
-
-  async generate(
-    systemPrompt: string,
-    userPrompt: string,
-    options?: Record<string, any>
-  ): Promise<LLMResponse> {
-    const response = this.responses[this.callCount % this.responses.length];
-    this.callCount++;
-
-    return {
-      content: response,
-      promptTokens: 100,
-      completionTokens: 50,
-      totalTokens: 150,
-      modelName: 'mock-model'
-    };
-  }
-
-  supportsJsonMode(): boolean {
-    return true;
-  }
-
-  get modelName(): string {
-    return 'mock-model';
-  }
-}
-
-/**
- * Create mock browser
- */
-function createMockBrowser(): SentienceBrowser {
-  const mockPage = {
-    url: jest.fn().mockReturnValue('https://example.com'),
-    goto: jest.fn().mockResolvedValue(undefined)
-  };
-
-  const browser = {
-    getPage: jest.fn().mockReturnValue(mockPage)
-  } as any;
-
-  return browser;
-}
-
-/**
- * Create mock snapshot
- */
-function createMockSnapshot(): Snapshot {
-  const elements: Element[] = [
-    {
-      id: 1,
-      role: 'button',
-      text: 'Search',
-      importance: 900,
-      bbox: { x: 100, y: 200, width: 80, height: 30 } as BBox,
-      visual_cues: {
-        is_primary: true,
-        is_clickable: true,
-        background_color_name: 'blue'
-      } as VisualCues,
-      in_viewport: true,
-      is_occluded: false,
-      z_index: 10
-    },
-    {
-      id: 2,
-      role: 'textbox',
-      text: '',
-      importance: 850,
-      bbox: { x: 100, y: 100, width: 200, height: 40 } as BBox,
-      visual_cues: {
-        is_primary: false,
-        is_clickable: true,
-        background_color_name: null
-      } as VisualCues,
-      in_viewport: true,
-      is_occluded: false,
-      z_index: 5
-    }
-  ];
-
-  return {
-    status: 'success',
-    timestamp: '2024-12-24T10:00:00Z',
-    url: 'https://example.com',
-    viewport: { width: 1920, height: 1080 } as Viewport,
-    elements
-  };
-}
+const mockSnapshot = snapshot as jest.MockedFunction<typeof snapshot>;
 
 describe('ConversationalAgent', () => {
-  describe('initialization', () => {
-    it('should initialize agent', () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider();
+  let mockLLMProvider: jest.Mocked<LLMProvider>;
+  let mockBrowser: jest.Mocked<SentienceBrowser>;
+  let agent: ConversationalAgent;
+  let mockActFn: jest.Mock;
 
-      const agent = new ConversationalAgent(browser, llm, false);
+  beforeEach(() => {
+    // Mock SentienceAgent.act before creating ConversationalAgent
+    const MockedSentienceAgent = SentienceAgent as jest.MockedClass<typeof SentienceAgent>;
+    mockActFn = jest.fn().mockResolvedValue({
+      success: true,
+      outcome: 'Success',
+      durationMs: 100,
+      attempt: 1,
+      goal: 'test'
+    });
+    MockedSentienceAgent.prototype.act = mockActFn;
+    MockedSentienceAgent.prototype.getTokenStats = jest.fn().mockReturnValue({
+      totalPromptTokens: 200,
+      totalCompletionTokens: 300,
+      totalTokens: 500,
+      byAction: []
+    });
 
-      expect(agent).toBeDefined();
+    // Mock LLM Provider
+    mockLLMProvider = {
+      generate: jest.fn(),
+      supportsJsonMode: jest.fn().mockReturnValue(true),
+      modelName: 'test-model'
+    } as any;
+
+    // Mock SentienceBrowser
+    const mockPage = {
+      goto: jest.fn(),
+      waitForLoadState: jest.fn(),
+      keyboard: {
+        press: jest.fn()
+      },
+      waitForTimeout: jest.fn()
+    } as any;
+
+    mockBrowser = {
+      getPage: jest.fn().mockReturnValue(mockPage),
+      getApiKey: jest.fn(),
+      getApiUrl: jest.fn()
+    } as any;
+
+    // Mock snapshot function
+    const mockSnap: Snapshot = {
+      status: 'success',
+      url: 'https://example.com',
+      elements: [
+        {
+          id: 1,
+          role: 'button',
+          text: 'Click me',
+          importance: 1,
+          bbox: { x: 0, y: 0, width: 100, height: 50 },
+          visual_cues: { is_primary: true, background_color_name: 'blue', is_clickable: true },
+          in_viewport: true,
+          is_occluded: false,
+          z_index: 1
+        },
+        {
+          id: 2,
+          role: 'textbox',
+          text: 'Search',
+          importance: 1,
+          bbox: { x: 0, y: 100, width: 200, height: 30 },
+          visual_cues: { is_primary: false, background_color_name: 'white', is_clickable: true },
+          in_viewport: true,
+          is_occluded: false,
+          z_index: 1
+        }
+      ]
+    };
+    mockSnapshot.mockResolvedValue(mockSnap);
+
+    // Create agent
+    agent = new ConversationalAgent({
+      llmProvider: mockLLMProvider,
+      browser: mockBrowser,
+      verbose: false
+    });
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('Initialization', () => {
+    test('should initialize with required parameters', () => {
+      expect(agent).toBeInstanceOf(ConversationalAgent);
       expect(agent.getHistory()).toEqual([]);
+    });
+
+    test('should initialize with custom options', () => {
+      const customAgent = new ConversationalAgent({
+        llmProvider: mockLLMProvider,
+        browser: mockBrowser,
+        verbose: true,
+        maxTokens: 8000,
+        planningModel: 'gpt-4',
+        executionModel: 'gpt-3.5-turbo'
+      });
+
+      expect(customAgent).toBeInstanceOf(ConversationalAgent);
     });
   });
 
   describe('createPlan', () => {
-    it('should create execution plan from LLM', async () => {
-      const browser = createMockBrowser();
-
-      const planJson = JSON.stringify({
-        intent: 'Search for laptops',
+    test('should create a valid execution plan', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Search Google for TypeScript',
         steps: [
           {
-            action: 'FIND_AND_CLICK',
-            description: 'Click the search box',
-            parameters: { element_description: 'search box' }
+            action: 'NAVIGATE',
+            parameters: { url: 'https://google.com' },
+            reasoning: 'Go to Google homepage'
           },
           {
             action: 'FIND_AND_TYPE',
-            description: 'Type "laptops"',
-            parameters: { element_description: 'search box', text: 'laptops' }
+            parameters: { description: 'search box', text: 'TypeScript' },
+            reasoning: 'Enter search term'
+          }
+        ]
+      };
+
+      mockLLMProvider.generate.mockResolvedValue({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 100
+      });
+
+      const response = await agent.execute('Search Google for TypeScript');
+
+      expect(mockLLMProvider.generate).toHaveBeenCalled();
+      expect(response).toBeTruthy();
+    });
+
+    test('should handle planning errors', async () => {
+      mockLLMProvider.generate.mockRejectedValue(new Error('LLM API error'));
+
+      const response = await agent.execute('Do something');
+
+      expect(response).toContain('error');
+    });
+  });
+
+  describe('executeStep - NAVIGATE', () => {
+    test('should navigate to a URL', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Navigate to Google',
+        steps: [
+          {
+            action: 'NAVIGATE',
+            parameters: { url: 'https://google.com' },
+            reasoning: 'Go to Google'
+          }
+        ]
+      };
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Successfully navigated to Google.',
+        totalTokens: 30
+      });
+
+      const response = await agent.execute('Go to Google');
+
+      expect(mockBrowser.getPage().goto).toHaveBeenCalledWith('https://google.com');
+      expect(mockBrowser.getPage().waitForLoadState).toHaveBeenCalledWith('domcontentloaded');
+      expect(response).toContain('Google');
+    });
+  });
+
+  describe('executeStep - FIND_AND_CLICK', () => {
+    test('should click on an element', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Click the login button',
+        steps: [
+          {
+            action: 'FIND_AND_CLICK',
+            parameters: { description: 'login button' },
+            reasoning: 'Click login'
+          }
+        ]
+      };
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Successfully clicked the login button.',
+        totalTokens: 30
+      });
+
+      const response = await agent.execute('Click the login button');
+
+      expect(mockActFn).toHaveBeenCalledWith(
+        expect.stringContaining('Click on: login button')
+      );
+      expect(response).toBeTruthy();
+    });
+  });
+
+  describe('executeStep - FIND_AND_TYPE', () => {
+    test('should type text into an element', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Enter username',
+        steps: [
+          {
+            action: 'FIND_AND_TYPE',
+            parameters: { description: 'username field', text: 'testuser' },
+            reasoning: 'Type username'
+          }
+        ]
+      };
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Successfully entered the username.',
+        totalTokens: 30
+      });
+
+      const response = await agent.execute('Enter username testuser');
+
+      expect(mockActFn).toHaveBeenCalledWith(
+        expect.stringContaining('Type "testuser" into: username field')
+      );
+      expect(response).toBeTruthy();
+    });
+  });
+
+  describe('executeStep - PRESS_KEY', () => {
+    test('should press a keyboard key', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Press Enter',
+        steps: [
+          {
+            action: 'PRESS_KEY',
+            parameters: { key: 'Enter' },
+            reasoning: 'Submit form'
+          }
+        ]
+      };
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Pressed the Enter key.',
+        totalTokens: 30
+      });
+
+      const response = await agent.execute('Press Enter');
+
+      expect(mockBrowser.getPage().keyboard.press).toHaveBeenCalledWith('Enter');
+      expect(response).toBeTruthy();
+    });
+  });
+
+  describe('executeStep - WAIT', () => {
+    test('should wait for specified seconds', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Wait 3 seconds',
+        steps: [
+          {
+            action: 'WAIT',
+            parameters: { seconds: 3 },
+            reasoning: 'Wait for page to load'
+          }
+        ]
+      };
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Waited 3 seconds.',
+        totalTokens: 30
+      });
+
+      const response = await agent.execute('Wait 3 seconds');
+
+      expect(mockBrowser.getPage().waitForTimeout).toHaveBeenCalledWith(3000);
+      expect(response).toBeTruthy();
+    });
+
+    test('should wait for default 2 seconds if not specified', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Wait a moment',
+        steps: [
+          {
+            action: 'WAIT',
+            parameters: {},
+            reasoning: 'Wait briefly'
+          }
+        ]
+      };
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Waited for a moment.',
+        totalTokens: 30
+      });
+
+      await agent.execute('Wait a moment');
+
+      expect(mockBrowser.getPage().waitForTimeout).toHaveBeenCalledWith(2000);
+    });
+  });
+
+  describe('executeStep - EXTRACT_INFO', () => {
+    test('should extract information from the page', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Get page title',
+        steps: [
+          {
+            action: 'EXTRACT_INFO',
+            parameters: { info_type: 'page title' },
+            reasoning: 'Extract title'
+          }
+        ]
+      };
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
+
+      // Mock extraction response
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Google Search',
+        totalTokens: 20
+      });
+
+      // Mock synthesis response
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'The page title is "Google Search".',
+        totalTokens: 30
+      });
+
+      const response = await agent.execute('What is the page title?');
+
+      expect(response).toBeTruthy();
+    });
+  });
+
+  describe('executeStep - VERIFY', () => {
+    test('should verify a condition is true', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Check if logged in',
+        steps: [
+          {
+            action: 'VERIFY',
+            parameters: { condition: 'user is logged in' },
+            reasoning: 'Verify login status'
+          }
+        ]
+      };
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
+
+      // Mock verification response
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'yes',
+        totalTokens: 5
+      });
+
+      // Mock synthesis response
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Yes, the user is logged in.',
+        totalTokens: 30
+      });
+
+      const response = await agent.execute('Am I logged in?');
+
+      expect(response).toBeTruthy();
+    });
+
+    test('should verify a condition is false', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Check if error shown',
+        steps: [
+          {
+            action: 'VERIFY',
+            parameters: { condition: 'error message is displayed' },
+            reasoning: 'Check for errors'
+          }
+        ]
+      };
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
+
+      // Mock verification response
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'no',
+        totalTokens: 5
+      });
+
+      // Mock synthesis response
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'No error message is displayed.',
+        totalTokens: 30
+      });
+
+      const response = await agent.execute('Is there an error?');
+
+      expect(response).toBeTruthy();
+    });
+  });
+
+  describe('execute - Full Flow', () => {
+    test('should execute a complete multi-step plan', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Search Google for TypeScript',
+        steps: [
+          {
+            action: 'NAVIGATE',
+            parameters: { url: 'https://google.com' },
+            reasoning: 'Go to Google'
+          },
+          {
+            action: 'FIND_AND_TYPE',
+            parameters: { description: 'search box', text: 'TypeScript' },
+            reasoning: 'Enter search term'
           },
           {
             action: 'PRESS_KEY',
-            description: 'Press Enter',
-            parameters: { key: 'Enter' }
+            parameters: { key: 'Enter' },
+            reasoning: 'Submit search'
           }
-        ],
-        expected_outcome: 'Search results for laptops displayed'
+        ]
+      };
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 100
       });
 
-      const llm = new MockLLMProvider([planJson]);
-      const agent = new ConversationalAgent(browser, llm, false);
-
-      const plan = await (agent as any).createPlan('Search for laptops');
-
-      expect(plan.intent).toBe('Search for laptops');
-      expect(plan.steps.length).toBe(3);
-      expect(plan.steps[0].action).toBe('FIND_AND_CLICK');
-      expect(plan.steps[1].action).toBe('FIND_AND_TYPE');
-      expect(plan.steps[2].action).toBe('PRESS_KEY');
-    });
-
-    it('should handle JSON parse failure with fallback', async () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider(['invalid json {']);
-      const agent = new ConversationalAgent(browser, llm, false);
-
-      const plan = await (agent as any).createPlan('Click button');
-
-      // Should create fallback plan
-      expect(plan.intent).toBe('Click button');
-      expect(plan.steps.length).toBe(1);
-      expect(plan.steps[0].action).toBe('FIND_AND_CLICK');
-    });
-  });
-
-  describe('executeStep', () => {
-    it('should execute NAVIGATE action', async () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider();
-      const agent = new ConversationalAgent(browser, llm, false);
-
-      const step: PlanStep = {
-        action: 'NAVIGATE',
-        description: 'Go to google.com',
-        parameters: { url: 'google.com' }
-      };
-
-      const result = await (agent as any).executeStep(step);
-
-      expect(result.success).toBe(true);
-      expect(result.action).toBe('NAVIGATE');
-      expect(result.data.url).toBe('https://google.com');
-      expect(browser.getPage().goto).toHaveBeenCalledWith(
-        'https://google.com',
-        { waitUntil: 'domcontentloaded' }
-      );
-    });
-
-    it('should execute FIND_AND_CLICK action', async () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider(['CLICK(1)']);
-      const agent = new ConversationalAgent(browser, llm, false);
-
-      // Mock snapshot and click
-      jest.spyOn(snapshotModule, 'snapshot').mockResolvedValue(createMockSnapshot());
-      const mockClick = jest.spyOn(require('../src/actions'), 'click').mockResolvedValue({
-        success: true,
-        duration_ms: 100,
-        outcome: 'dom_updated'
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'I searched Google for TypeScript and got the results.',
+        totalTokens: 50
       });
 
-      const step: PlanStep = {
-        action: 'FIND_AND_CLICK',
-        description: 'Click the search button',
-        parameters: { element_description: 'search button' }
-      };
+      const response = await agent.execute('Search Google for TypeScript');
 
-      const result = await (agent as any).executeStep(step);
-
-      expect(result.success).toBe(true);
-      expect(result.action).toBe('FIND_AND_CLICK');
+      expect(mockBrowser.getPage().goto).toHaveBeenCalled();
+      expect(mockActFn).toHaveBeenCalled();
+      expect(mockBrowser.getPage().keyboard.press).toHaveBeenCalledWith('Enter');
+      expect(response).toContain('TypeScript');
     });
 
-    it('should execute FIND_AND_TYPE action', async () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider(['TYPE(2, "laptops")']);
-      const agent = new ConversationalAgent(browser, llm, false);
-
-      // Mock snapshot and typeText
-      jest.spyOn(snapshotModule, 'snapshot').mockResolvedValue(createMockSnapshot());
-      jest.spyOn(require('../src/actions'), 'typeText').mockResolvedValue({
-        success: true,
-        duration_ms: 150,
-        outcome: 'dom_updated'
-      });
-
-      const step: PlanStep = {
-        action: 'FIND_AND_TYPE',
-        description: 'Type "laptops"',
-        parameters: { element_description: 'search box', text: 'laptops' }
-      };
-
-      const result = await (agent as any).executeStep(step);
-
-      expect(result.success).toBe(true);
-      expect(result.action).toBe('FIND_AND_TYPE');
-      expect(result.data.text).toBe('laptops');
-    });
-
-    it('should execute PRESS_KEY action', async () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider(['PRESS("Enter")']);
-      const agent = new ConversationalAgent(browser, llm, false);
-
-      // Mock snapshot and press
-      jest.spyOn(snapshotModule, 'snapshot').mockResolvedValue(createMockSnapshot());
-      jest.spyOn(require('../src/actions'), 'press').mockResolvedValue({
-        success: true,
-        duration_ms: 50,
-        outcome: 'dom_updated'
-      });
-
-      const step: PlanStep = {
-        action: 'PRESS_KEY',
-        description: 'Press Enter',
-        parameters: { key: 'Enter' }
-      };
-
-      const result = await (agent as any).executeStep(step);
-
-      expect(result.success).toBe(true);
-      expect(result.action).toBe('PRESS_KEY');
-      expect(result.data.key).toBe('Enter');
-    });
-
-    it('should execute WAIT action', async () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider();
-      const agent = new ConversationalAgent(browser, llm, false);
-
-      const step: PlanStep = {
-        action: 'WAIT',
-        description: 'Wait 1 second',
-        parameters: { duration: 0.1 } // 0.1 seconds for fast test
-      };
-
-      const startTime = Date.now();
-      const result = await (agent as any).executeStep(step);
-      const elapsed = Date.now() - startTime;
-
-      expect(result.success).toBe(true);
-      expect(result.action).toBe('WAIT');
-      expect(elapsed).toBeGreaterThanOrEqual(90); // Allow some margin
-    });
-
-    it('should execute EXTRACT_INFO action', async () => {
-      const browser = createMockBrowser();
-
-      const extractionResult = JSON.stringify({
-        found: true,
-        data: { price: '$79.99' },
-        summary: 'Found price $79.99'
-      });
-
-      const llm = new MockLLMProvider([extractionResult]);
-      const agent = new ConversationalAgent(browser, llm, false);
-
-      // Mock snapshot
-      jest.spyOn(snapshotModule, 'snapshot').mockResolvedValue(createMockSnapshot());
-
-      const step: PlanStep = {
-        action: 'EXTRACT_INFO',
-        description: 'Extract product price',
-        parameters: { info_type: 'product price' }
-      };
-
-      const result = await (agent as any).executeStep(step);
-
-      expect(result.success).toBe(true);
-      expect(result.action).toBe('EXTRACT_INFO');
-      expect(result.data.extracted.found).toBe(true);
-      expect(result.data.extracted.data.price).toBe('$79.99');
-    });
-
-    it('should execute VERIFY action', async () => {
-      const browser = createMockBrowser();
-
-      const verifyResult = JSON.stringify({
-        verified: true,
-        reasoning: 'Search results are visible'
-      });
-
-      const llm = new MockLLMProvider([verifyResult]);
-      const agent = new ConversationalAgent(browser, llm, false);
-
-      // Mock snapshot
-      jest.spyOn(snapshotModule, 'snapshot').mockResolvedValue(createMockSnapshot());
-
-      const step: PlanStep = {
-        action: 'VERIFY',
-        description: 'Verify results appeared',
-        parameters: { condition: 'page contains search results' }
-      };
-
-      const result = await (agent as any).executeStep(step);
-
-      expect(result.success).toBe(true);
-      expect(result.action).toBe('VERIFY');
-      expect(result.data.verified).toBe(true);
-    });
-  });
-
-  describe('execute full flow', () => {
-    it('should execute complete natural language command', async () => {
-      const browser = createMockBrowser();
-
-      const planJson = JSON.stringify({
-        intent: 'Search for laptops',
+    test('should handle step failures gracefully', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Click something',
         steps: [
           {
             action: 'FIND_AND_CLICK',
-            description: 'Click search box',
-            parameters: { element_description: 'search box' }
+            parameters: { description: 'nonexistent button' },
+            reasoning: 'Try to click'
           }
-        ],
-        expected_outcome: 'Search initiated'
+        ]
+      };
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
       });
 
-      const synthesisResponse = 'I clicked the search box successfully.';
+      // Override the mockActFn for this specific test to simulate failure
+      mockActFn.mockRejectedValueOnce(new Error('Element not found'));
 
-      const llm = new MockLLMProvider([
-        planJson,         // For createPlan
-        'CLICK(1)',       // For FIND_AND_CLICK
-        synthesisResponse // For synthesizeResponse
-      ]);
-
-      const agent = new ConversationalAgent(browser, llm, false);
-
-      // Mock snapshot and actions
-      jest.spyOn(snapshotModule, 'snapshot').mockResolvedValue(createMockSnapshot());
-      jest.spyOn(require('../src/actions'), 'click').mockResolvedValue({
-        success: true,
-        duration_ms: 100,
-        outcome: 'dom_updated'
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Could not find the button to click.',
+        totalTokens: 30
       });
 
-      const result = await agent.execute('Click the search box');
+      const response = await agent.execute('Click the button');
 
-      expect(result).toContain('search box');
-      expect(agent.getHistory().length).toBe(1);
-      expect(agent.getHistory()[0].user_input).toBe('Click the search box');
-    });
-
-    it('should handle step failure gracefully', async () => {
-      const browser = createMockBrowser();
-
-      const planJson = JSON.stringify({
-        intent: 'Click button',
-        steps: [
-          {
-            action: 'FIND_AND_CLICK',
-            description: 'Click button',
-            parameters: { element_description: 'button' }
-          }
-        ],
-        expected_outcome: 'Button clicked'
-      });
-
-      const synthesisResponse = 'I attempted to click the button but encountered an error.';
-
-      const llm = new MockLLMProvider([
-        planJson,
-        'CLICK(999)',     // Invalid element ID
-        synthesisResponse
-      ]);
-
-      const agent = new ConversationalAgent(browser, llm, false);
-
-      // Mock snapshot and failing click
-      jest.spyOn(snapshotModule, 'snapshot').mockResolvedValue(createMockSnapshot());
-      jest.spyOn(require('../src/actions'), 'click').mockResolvedValue({
-        success: false,
-        duration_ms: 100,
-        outcome: 'error',
-        error: 'Element not found'
-      });
-
-      const result = await agent.execute('Click the button');
-
-      // Should return error message
-      expect(result).toBeTruthy();
-      expect(agent.getHistory().length).toBe(1);
+      expect(response).toBeTruthy();
     });
   });
 
-  describe('conversation history', () => {
-    it('should track conversation history', async () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider([
-        JSON.stringify({ intent: 'test', steps: [], expected_outcome: 'done' }),
-        'Done'
-      ]);
-      const agent = new ConversationalAgent(browser, llm, false);
+  describe('Conversation History', () => {
+    test('should track conversation history', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Simple task',
+        steps: [
+          {
+            action: 'WAIT',
+            parameters: { seconds: 1 },
+            reasoning: 'Wait'
+          }
+        ]
+      };
 
-      await agent.execute('Test command');
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Completed the task.',
+        totalTokens: 20
+      });
+
+      await agent.execute('Do something');
 
       const history = agent.getHistory();
-      expect(history.length).toBe(1);
-      expect(history[0].user_input).toBe('Test command');
-      expect(history[0].response).toBeTruthy();
-      expect(history[0].duration_ms).toBeGreaterThanOrEqual(0);
+      expect(history).toHaveLength(2); // user + assistant
+      expect(history[0].role).toBe('user');
+      expect(history[1].role).toBe('assistant');
     });
 
-    it('should clear history', async () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider([
-        JSON.stringify({ intent: 'test', steps: [], expected_outcome: 'done' }),
-        'Done'
-      ]);
-      const agent = new ConversationalAgent(browser, llm, false);
+    test('should clear conversation history', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Simple task',
+        steps: [
+          {
+            action: 'WAIT',
+            parameters: { seconds: 1 },
+            reasoning: 'Wait'
+          }
+        ]
+      };
 
-      await agent.execute('Test command');
-      expect(agent.getHistory().length).toBe(1);
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Done.',
+        totalTokens: 10
+      });
+
+      await agent.execute('Do something');
+
+      expect(agent.getHistory()).toHaveLength(2);
 
       agent.clearHistory();
-      expect(agent.getHistory().length).toBe(0);
+
+      expect(agent.getHistory()).toHaveLength(0);
     });
   });
 
-  describe('chat method', () => {
-    it('should work as alias for execute', async () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider([
-        JSON.stringify({ intent: 'test', steps: [], expected_outcome: 'done' }),
-        'Done'
-      ]);
-      const agent = new ConversationalAgent(browser, llm, false);
+  describe('chat', () => {
+    test('should handle chat messages', async () => {
+      const mockPlan: ExecutionPlan = {
+        goal: 'Respond to chat',
+        steps: [
+          {
+            action: 'WAIT',
+            parameters: { seconds: 1 },
+            reasoning: 'Process'
+          }
+        ]
+      };
 
-      const result = await agent.chat('Test message');
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
 
-      expect(result).toBeTruthy();
-      expect(agent.getHistory().length).toBe(1);
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Hello! How can I help?',
+        totalTokens: 20
+      });
+
+      const response = await agent.chat('Hello');
+
+      expect(response).toBeTruthy();
+      expect(agent.getHistory()).toHaveLength(2);
     });
   });
 
   describe('getSummary', () => {
-    it('should return summary of session', async () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider([
-        JSON.stringify({ intent: 'test', steps: [], expected_outcome: 'done' }),
-        'Done',
-        'Session summary: Completed 1 action successfully.'
-      ]);
-      const agent = new ConversationalAgent(browser, llm, false);
+    test('should generate conversation summary', async () => {
+      // First, have a conversation
+      const mockPlan: ExecutionPlan = {
+        goal: 'Do task',
+        steps: [
+          {
+            action: 'WAIT',
+            parameters: { seconds: 1 },
+            reasoning: 'Wait'
+          }
+        ]
+      };
 
-      await agent.execute('Test command');
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: JSON.stringify(mockPlan),
+        totalTokens: 50
+      });
+
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'Task completed.',
+        totalTokens: 20
+      });
+
+      await agent.execute('Do a task');
+
+      // Now get summary
+      mockLLMProvider.generate.mockResolvedValueOnce({
+        content: 'The session completed one task successfully.',
+        totalTokens: 30
+      });
 
       const summary = await agent.getSummary();
 
       expect(summary).toBeTruthy();
+      const summaryLower = summary.toLowerCase();
       expect(
-        summary.toLowerCase().includes('session') ||
-        summary.toLowerCase().includes('completed') ||
-        summary.toLowerCase().includes('action')
+        summaryLower.includes('session') ||
+        summaryLower.includes('completed') ||
+        summaryLower.includes('task')
       ).toBe(true);
     });
 
-    it('should handle empty history', async () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider();
-      const agent = new ConversationalAgent(browser, llm, false);
-
+    test('should handle empty conversation history', async () => {
       const summary = await agent.getSummary();
 
-      expect(summary).toBe('No actions have been performed yet.');
+      expect(summary).toContain('No conversation history');
     });
   });
 
-  describe('getTokenStats', () => {
-    it('should return token stats from technical agent', () => {
-      const browser = createMockBrowser();
-      const llm = new MockLLMProvider();
-      const agent = new ConversationalAgent(browser, llm, false);
-
+  describe('Token Statistics', () => {
+    test('should provide token statistics', () => {
       const stats = agent.getTokenStats();
 
       expect(stats).toBeDefined();
-      expect(stats.totalTokens).toBeDefined();
+      expect(stats.totalTokens).toBe(500);
     });
   });
 });

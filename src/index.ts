@@ -28,6 +28,8 @@ export {
   HistoryEntry,
   TokenStats
 } from './agent';
+
+// Conversational Agent Layer (v0.3.0+)
 export {
   ConversationalAgent,
   ExecutionPlan,
