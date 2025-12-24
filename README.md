@@ -14,9 +14,40 @@ npx playwright install chromium
 
 ## Quick Start: Choose Your Abstraction Level
 
-Sentience SDK offers **3 levels of abstraction** - choose based on your needs:
+Sentience SDK offers **4 levels of abstraction** - choose based on your needs:
 
-### 🤖 Level 3: Agent (Natural Language) - **Recommended for Most Users**
+### 💬 Level 4: Conversational Agent (Highest Abstraction) - **NEW in v0.3.0**
+
+Complete automation with natural conversation. Just describe what you want, and the agent plans and executes everything:
+
+```typescript
+import { SentienceBrowser, ConversationalAgent, OpenAIProvider } from 'sentience-ts';
+
+const browser = await SentienceBrowser.create({ apiKey: process.env.SENTIENCE_API_KEY });
+const llm = new OpenAIProvider(process.env.OPENAI_API_KEY!, 'gpt-4o');
+const agent = new ConversationalAgent({ llmProvider: llm, browser });
+
+// Navigate to starting page
+await browser.getPage().goto('https://amazon.com');
+
+// ONE command does it all - automatic planning and execution!
+const response = await agent.execute(
+  "Search for 'wireless mouse' and tell me the price of the top result"
+);
+console.log(response); // "I found the top result for wireless mouse on Amazon. It's priced at $24.99..."
+
+// Follow-up questions maintain context
+const followUp = await agent.chat("Add it to cart");
+console.log(followUp);
+
+await browser.close();
+```
+
+**When to use:** Complex multi-step tasks, conversational interfaces, maximum convenience
+**Code reduction:** 99% less code - describe goals in natural language
+**Requirements:** OpenAI or Anthropic API key
+
+### 🤖 Level 3: Agent (Natural Language Commands) - **Recommended for Most Users**
 
 Zero coding knowledge needed. Just write what you want in plain English:
 
