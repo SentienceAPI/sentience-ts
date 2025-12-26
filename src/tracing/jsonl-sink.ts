@@ -13,7 +13,7 @@ import { TraceSink } from './sink';
  */
 export class JsonlTraceSink extends TraceSink {
   private path: string;
-  private writeStream: fs.WriteStream;
+  private writeStream: fs.WriteStream | null = null;
   private closed: boolean = false;
 
   /**
@@ -24,17 +24,33 @@ export class JsonlTraceSink extends TraceSink {
     super();
     this.path = filePath;
 
-    // Create parent directories if needed
+    // Create parent directories if needed (synchronously)
     const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
 
-    // Open file in append mode with line buffering
-    this.writeStream = fs.createWriteStream(filePath, {
-      flags: 'a',
-      encoding: 'utf-8',
-    });
+      // Verify directory is writable
+      fs.accessSync(dir, fs.constants.W_OK);
+
+      // Open file in append mode with line buffering
+      this.writeStream = fs.createWriteStream(filePath, {
+        flags: 'a',
+        encoding: 'utf-8',
+        autoClose: true,
+      });
+
+      // Handle stream errors (suppress logging if stream is closed)
+      this.writeStream.on('error', (error) => {
+        if (!this.closed) {
+          console.error('[JsonlTraceSink] Stream error:', error);
+        }
+      });
+    } catch (error) {
+      console.error('[JsonlTraceSink] Failed to initialize sink:', error);
+      this.writeStream = null;
+    }
   }
 
   /**
@@ -44,6 +60,11 @@ export class JsonlTraceSink extends TraceSink {
   emit(event: Record<string, any>): void {
     if (this.closed) {
       console.warn('[JsonlTraceSink] Attempted to emit after close()');
+      return;
+    }
+
+    if (!this.writeStream) {
+      console.error('[JsonlTraceSink] Write stream not available');
       return;
     }
 
@@ -71,10 +92,17 @@ export class JsonlTraceSink extends TraceSink {
       return;
     }
 
+    // Store reference to satisfy TypeScript null checks
+    const stream = this.writeStream;
+
+    // Remove error listener to prevent late errors
+    stream.removeAllListeners('error');
+
     return new Promise<void>((resolve) => {
-      this.writeStream.end((err?: Error | null) => {
+      stream.end((err?: Error | null) => {
         if (err) {
-          console.error('[JsonlTraceSink] Error closing stream:', err);
+          // Silently ignore close errors in production
+          // (they're logged during stream lifetime if needed)
         }
         // Always resolve, don't reject on close errors
         resolve();
