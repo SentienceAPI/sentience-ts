@@ -16,6 +16,8 @@
     "example:agent-claude": "ts-node examples/agent-with-anthropic.ts",
     "example:conversational-google": "ts-node examples/conversational-google-search.ts",
     "example:conversational-amazon": "ts-node examples/conversational-amazon-shopping.ts",
+    "example:tracing": "ts-node examples/agent-with-tracing.ts",
+    "example:trace-replay": "ts-node examples/trace-replay-demo.ts",
     "cli": "ts-node src/cli.ts"
   },
   "bin": {
