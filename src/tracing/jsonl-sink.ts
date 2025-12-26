@@ -66,14 +66,18 @@ export class JsonlTraceSink extends TraceSink {
 
     this.closed = true;
 
-    return new Promise<void>((resolve, reject) => {
+    // Check if stream exists and is writable
+    if (!this.writeStream || this.writeStream.destroyed) {
+      return;
+    }
+
+    return new Promise<void>((resolve) => {
       this.writeStream.end((err?: Error | null) => {
         if (err) {
           console.error('[JsonlTraceSink] Error closing stream:', err);
-          reject(err);
-        } else {
-          resolve();
         }
+        // Always resolve, don't reject on close errors
+        resolve();
       });
     });
   }
