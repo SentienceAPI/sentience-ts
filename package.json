@@ -18,6 +18,7 @@
     "example:conversational-amazon": "ts-node examples/conversational-amazon-shopping.ts",
     "example:tracing": "ts-node examples/agent-with-tracing.ts",
     "example:trace-replay": "ts-node examples/trace-replay-demo.ts",
+    "example:cloud-tracing": "ts-node examples/cloud-tracing-agent.ts",
     "cli": "ts-node src/cli.ts"
   },
   "bin": {
