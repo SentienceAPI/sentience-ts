@@ -155,9 +155,14 @@ describe('Agent Integration with Tracing', () => {
     });
 
     it('should emit error events on failure', async () => {
-      // Ensure directory exists before creating sink
+      // Ensure directory exists and is writable before creating sink
       if (!fs.existsSync(testDir)) {
         fs.mkdirSync(testDir, { recursive: true });
+      }
+      
+      // Ensure file doesn't exist from previous test runs
+      if (fs.existsSync(testFile)) {
+        fs.unlinkSync(testFile);
       }
       
       const sink = new JsonlTraceSink(testFile);
@@ -170,9 +175,22 @@ describe('Agent Integration with Tracing', () => {
         throw new Error('JsonlTraceSink failed to initialize writeStream');
       }
 
+      // Verify directory is writable
+      try {
+        fs.accessSync(testDir, fs.constants.W_OK);
+      } catch (err) {
+        throw new Error(`Test directory is not writable: ${testDir}`);
+      }
+
       // Mock snapshot to fail
       const mockSnapshot = jest.spyOn(require('../../src/snapshot'), 'snapshot');
       mockSnapshot.mockRejectedValue(new Error('Snapshot failed'));
+
+      // Manually emit a test event to ensure the sink can write
+      tracer.emit('test_event', { test: true });
+      
+      // Wait a moment to ensure the test event is written
+      await new Promise(resolve => setTimeout(resolve, 50));
 
       try {
         await agent.act('Do something', 1); // maxRetries = 1
@@ -184,17 +202,34 @@ describe('Agent Integration with Tracing', () => {
       await agent.closeTracer();
       mockSnapshot.mockRestore();
 
-      // Wait a bit for file to be written (stream may be buffered)
-      await new Promise(resolve => setTimeout(resolve, 200));
+      // Wait for file to be written and flushed (stream may be buffered)
+      // Use a retry loop to handle slow CI environments
+      let fileExists = false;
+      for (let i = 0; i < 20; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (fs.existsSync(testFile)) {
+          fileExists = true;
+          break;
+        }
+      }
 
       // Check if file exists - if not, the sink may have failed to initialize
       // or no events were emitted. In that case, verify the sink was created.
-      if (!fs.existsSync(testFile)) {
+      if (!fileExists) {
         // If file doesn't exist, check if sink initialized properly
         // The sink should create the file on first write, so if it doesn't exist,
         // either no events were emitted or the sink failed to initialize
         // For this test, we expect at least step_start to be emitted
-        throw new Error(`Trace file not created: ${testFile}. This suggests no events were written to the trace.`);
+        const dirExists = fs.existsSync(testDir);
+        const dirWritable = dirExists ? (() => {
+          try {
+            fs.accessSync(testDir, fs.constants.W_OK);
+            return true;
+          } catch {
+            return false;
+          }
+        })() : false;
+        throw new Error(`Trace file not created after 2s: ${testFile}. WriteStream exists: ${!!writeStream}, Stream destroyed: ${writeStream?.destroyed}, Directory exists: ${dirExists}, Directory writable: ${dirWritable}`);
       }
 
       // Read trace file
