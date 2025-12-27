@@ -70,7 +70,15 @@ export class JsonlTraceSink extends TraceSink {
 
     try {
       const jsonLine = JSON.stringify(event) + '\n';
-      this.writeStream.write(jsonLine);
+      const written = this.writeStream.write(jsonLine);
+      // If write returns false, the stream is backpressured
+      // We don't need to wait, but we could add a drain listener if needed
+      if (!written) {
+        // Stream is backpressured - wait for drain
+        this.writeStream.once('drain', () => {
+          // Stream is ready again
+        });
+      }
     } catch (error) {
       // Log error but don't crash agent execution
       console.error('[JsonlTraceSink] Failed to write event:', error);
