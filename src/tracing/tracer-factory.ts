@@ -20,6 +20,11 @@ import { CloudTraceSink } from './cloud-sink';
 import { JsonlTraceSink } from './jsonl-sink';
 
 /**
+ * Sentience API base URL (constant)
+ */
+export const SENTIENCE_API_URL = 'https://api.sentienceapi.com';
+
+/**
  * Get persistent cache directory for traces
  */
 function getPersistentCacheDir(): string {
@@ -31,7 +36,7 @@ function getPersistentCacheDir(): string {
  * Recover orphaned traces from previous crashes
  * PRODUCTION FIX: Risk #3 - Upload traces from crashed sessions
  */
-async function recoverOrphanedTraces(apiKey: string, apiUrl: string): Promise<void> {
+async function recoverOrphanedTraces(apiKey: string, apiUrl: string = SENTIENCE_API_URL): Promise<void> {
   const cacheDir = getPersistentCacheDir();
 
   if (!fs.existsSync(cacheDir)) {
@@ -140,7 +145,6 @@ function httpPost(url: string, data: any, headers: Record<string, string>): Prom
  * @param options - Configuration options
  * @param options.apiKey - Sentience API key (e.g., "sk_pro_xxxxx")
  * @param options.runId - Unique identifier for this agent run (generates UUID if not provided)
- * @param options.apiUrl - Sentience API base URL (default: https://api.sentienceapi.com)
  * @returns Tracer configured with appropriate sink
  *
  * @example
@@ -162,15 +166,13 @@ function httpPost(url: string, data: any, headers: Record<string, string>): Prom
 export async function createTracer(options: {
   apiKey?: string;
   runId?: string;
-  apiUrl?: string;
 }): Promise<Tracer> {
   const runId = options.runId || randomUUID();
-  const apiUrl = options.apiUrl || 'https://api.sentienceapi.com';
 
   // PRODUCTION FIX: Recover orphaned traces from previous crashes
   if (options.apiKey) {
     try {
-      await recoverOrphanedTraces(options.apiKey, apiUrl);
+      await recoverOrphanedTraces(options.apiKey, SENTIENCE_API_URL);
     } catch (error) {
       // Don't fail SDK init if orphaned trace recovery fails
       console.log('⚠️  [Sentience] Orphaned trace recovery failed (non-critical)');
@@ -182,7 +184,7 @@ export async function createTracer(options: {
     try {
       // Request pre-signed upload URL from backend
       const response = await httpPost(
-        `${apiUrl}/v1/traces/init`,
+        `${SENTIENCE_API_URL}/v1/traces/init`,
         { run_id: runId },
         { Authorization: `Bearer ${options.apiKey}` }
       );
