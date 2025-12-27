@@ -222,7 +222,7 @@ describe('CloudTraceSink', () => {
     }, 70000); // 70 second timeout for test (CloudTraceSink has 60s timeout)
 
     it('should preserve trace on any error', async () => {
-      const sink = new CloudTraceSink('http://invalid-url-that-doesnt-exist.local/upload');
+      const sink = new CloudTraceSink('http://invalid-url-that-doesnt-exist.local/upload', 'test-run-' + Date.now());
 
       sink.emit({ v: 1, type: 'test', seq: 1 });
 
