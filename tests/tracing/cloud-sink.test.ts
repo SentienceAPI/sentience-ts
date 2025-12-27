@@ -189,7 +189,7 @@ describe('CloudTraceSink', () => {
     it('should handle network errors gracefully', async () => {
       // Use invalid URL that will fail
       const invalidUrl = 'http://localhost:1/invalid';
-      const sink = new CloudTraceSink(invalidUrl);
+      const sink = new CloudTraceSink(invalidUrl, 'test-run-' + Date.now());
 
       sink.emit({ v: 1, type: 'test', seq: 1 });
 
@@ -198,7 +198,7 @@ describe('CloudTraceSink', () => {
     });
 
     it('should handle upload timeout gracefully', async () => {
-      // Create server that doesn't respond
+      // Create server that doesn't respond (triggers timeout)
       const slowServer = http.createServer((req, res) => {
         // Never respond - will timeout
       });
@@ -210,16 +210,16 @@ describe('CloudTraceSink', () => {
       const address = slowServer.address();
       if (address && typeof address === 'object') {
         const slowUrl = `http://localhost:${address.port}/slow`;
-        const sink = new CloudTraceSink(slowUrl);
+        const sink = new CloudTraceSink(slowUrl, 'test-run-' + Date.now());
 
         sink.emit({ v: 1, type: 'test', seq: 1 });
 
-        // Should timeout and handle gracefully
+        // Should timeout and handle gracefully (60s timeout in CloudTraceSink)
         await sink.close();
 
         slowServer.close();
       }
-    });
+    }, 70000); // 70 second timeout for test (CloudTraceSink has 60s timeout)
 
     it('should preserve trace on any error', async () => {
       const sink = new CloudTraceSink('http://invalid-url-that-doesnt-exist.local/upload');
