@@ -970,11 +970,17 @@ npm test -- snapshot.test.ts
 
 ---
 
-## 📜 License
+## License & Commercial Use
 
-This project is licensed under either of:
+### Open Source SDK
+The Sentience SDK is dual-licensed under [MIT License](./LICENSE-MIT) and [Apache 2.0](./LICENSE-APACHE). You are free to use, modify, and distribute this SDK in your own projects (including commercial ones) without restriction.
 
-* Apache License, Version 2.0, ([LICENSE-APACHE](./LICENSE-APACHE))
-* MIT license ([LICENSE-MIT](./LICENSE-MIT))
+### Commercial Platform
+While the SDK is open source, the **Sentience Cloud Platform** (API, Hosting, Sentience Studio) is a commercial service.
 
-at your option.
+**We offer Commercial Licenses for:**
+* **High-Volume Production:** Usage beyond the free tier limits.
+* **SLA & Support:** Guaranteed uptime and dedicated engineering support.
+* **On-Premise / Self-Hosted Gateway:** If you need to run the Sentience Gateway (Rust+ONNX) in your own VPC for compliance (e.g., banking/healthcare), you need an Enterprise License.
+
+[Contact Us](mailto:support@sentienceapi.com) for Enterprise inquiries.
