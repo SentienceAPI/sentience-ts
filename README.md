@@ -1,5 +1,7 @@
 # Sentience TypeScript SDK
 
+**Semantic geometry grounding for deterministic, debuggable AI web agents with time-travel traces.**
+
 ## 📦 Installation
 
 ```bash
@@ -976,9 +978,3 @@ This project is licensed under either of:
 * MIT license ([LICENSE-MIT](./LICENSE-MIT))
 
 at your option.
-
-### Important Notes
-
-- This SDK is a **client-side library** that communicates with proprietary Sentience services and browser components.
-
-- The Sentience backend services (including semantic geometry grounding, ranking, visual cues, reranking and trace processing) are **not open source** and are governed by Sentience's Terms of Service.
