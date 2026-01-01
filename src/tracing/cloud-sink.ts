@@ -574,6 +574,338 @@ export class CloudTraceSink extends TraceSink {
   }
 
   /**
+   * Store screenshot locally during execution.
+   * 
+   * Called by agent when screenshot is captured.
+   * Fast, non-blocking operation (~1-5ms per screenshot).
+   * 
+   * @param sequence - Screenshot sequence number (1, 2, 3, ...)
+   * @param screenshotData - Base64-encoded data URL from snapshot
+   * @param format - Image format ("jpeg" or "png")
+   * @param stepId - Optional step ID for trace event association
+   */
+  storeScreenshot(
+    sequence: number,
+    screenshotData: string,
+    format: 'png' | 'jpeg',
+    stepId?: string | null
+  ): void {
+    if (this.closed) {
+      throw new Error('CloudTraceSink is closed');
+    }
+
+    try {
+      // Extract base64 string from data URL
+      // Format: "data:image/jpeg;base64,{base64_string}"
+      let base64String: string;
+      if (screenshotData.includes(',')) {
+        base64String = screenshotData.split(',', 2)[1];
+      } else {
+        base64String = screenshotData; // Already base64, no prefix
+      }
+
+      // Decode base64 to image bytes
+      const imageBytes = Buffer.from(base64String, 'base64');
+      const imageSize = imageBytes.length;
+
+      // Save to file
+      const filename = `step_${sequence.toString().padStart(4, '0')}.${format}`;
+      const filepath = path.join(this.screenshotDir, filename);
+
+      fs.writeFileSync(filepath, imageBytes);
+
+      // Track metadata using concrete type
+      const metadata: ScreenshotMetadata = {
+        sequence,
+        format,
+        sizeBytes: imageSize,
+        stepId: stepId || null,
+        filepath,
+      };
+      this.screenshotMetadata.set(sequence, metadata);
+
+      // Update total size
+      this.screenshotTotalSizeBytes += imageSize;
+
+      if (this.logger) {
+        this.logger.info(
+          `Screenshot ${sequence} stored: ${(imageSize / 1024).toFixed(1)} KB (${format})`
+        );
+      }
+    } catch (error: any) {
+      // Log error but don't crash agent
+      if (this.logger) {
+        this.logger.error(`Failed to store screenshot ${sequence}: ${error.message}`);
+      } else {
+        console.error(`⚠️  [Sentience] Failed to store screenshot ${sequence}: ${error.message}`);
+      }
+    }
+  }
+
+  /**
+   * Request pre-signed upload URLs for screenshots from gateway.
+   * 
+   * @param sequences - List of screenshot sequence numbers
+   * @returns Map of sequence number to upload URL
+   */
+  private async _requestScreenshotUrls(sequences: number[]): Promise<Map<number, string>> {
+    if (!this.apiKey || sequences.length === 0) {
+      return new Map();
+    }
+
+    return new Promise((resolve) => {
+      const url = new URL(`${this.apiUrl}/v1/screenshots/init`);
+      const protocol = url.protocol === 'https:' ? https : http;
+
+      const body = JSON.stringify({
+        run_id: this.runId,
+        sequences,
+      });
+
+      const options = {
+        hostname: url.hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: url.pathname + url.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        timeout: 10000, // 10 second timeout
+      };
+
+      const req = protocol.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            try {
+              const response = JSON.parse(data);
+              const uploadUrls = response.upload_urls || {};
+              const urlMap = new Map<number, string>();
+              
+              // Gateway returns sequences as strings in JSON, convert to int keys
+              for (const [seqStr, url] of Object.entries(uploadUrls)) {
+                urlMap.set(parseInt(seqStr, 10), url as string);
+              }
+              
+              resolve(urlMap);
+            } catch {
+              this.logger?.warn('Failed to parse screenshot upload URLs response');
+              resolve(new Map());
+            }
+          } else {
+            this.logger?.warn(`Failed to get screenshot URLs: HTTP ${res.statusCode}`);
+            resolve(new Map());
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        this.logger?.warn(`Error requesting screenshot URLs: ${error.message}`);
+        resolve(new Map());
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        this.logger?.warn('Screenshot URLs request timeout');
+        resolve(new Map());
+      });
+
+      req.write(body);
+      req.end();
+    });
+  }
+
+  /**
+   * Upload all screenshots to cloud via pre-signed URLs.
+   * 
+   * Steps:
+   * 1. Request pre-signed URLs from gateway (/v1/screenshots/init)
+   * 2. Upload screenshots in parallel (10 concurrent workers)
+   * 3. Track upload progress
+   * 4. Handle failures gracefully
+   */
+  private async _uploadScreenshots(): Promise<void> {
+    if (this.screenshotMetadata.size === 0) {
+      return; // No screenshots to upload
+    }
+
+    // 1. Request pre-signed URLs from gateway
+    const sequences = Array.from(this.screenshotMetadata.keys()).sort((a, b) => a - b);
+    const uploadUrls = await this._requestScreenshotUrls(sequences);
+
+    if (uploadUrls.size === 0) {
+      console.log('⚠️  [Sentience] No screenshot upload URLs received, skipping upload');
+      return;
+    }
+
+    // 2. Upload screenshots in parallel
+    const uploadPromises: Promise<boolean>[] = [];
+
+    for (const [seq, url] of uploadUrls.entries()) {
+      const metadata = this.screenshotMetadata.get(seq);
+      if (!metadata) {
+        continue;
+      }
+
+      const uploadPromise = this._uploadSingleScreenshot(seq, url, metadata);
+      uploadPromises.push(uploadPromise);
+    }
+
+    // Wait for all uploads (max 10 concurrent)
+    const results = await Promise.allSettled(uploadPromises.slice(0, 10));
+    
+    // Process remaining uploads in batches of 10
+    for (let i = 10; i < uploadPromises.length; i += 10) {
+      const batch = uploadPromises.slice(i, i + 10);
+      const batchResults = await Promise.allSettled(batch);
+      results.push(...batchResults);
+    }
+
+    // Count successes and failures
+    let uploadedCount = 0;
+    const failedSequences: number[] = [];
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.status === 'fulfilled' && result.value) {
+        uploadedCount++;
+      } else {
+        failedSequences.push(sequences[i]);
+      }
+    }
+
+    // 3. Report results
+    const totalCount = uploadUrls.size;
+    if (uploadedCount === totalCount) {
+      console.log(`✅ [Sentience] All ${totalCount} screenshots uploaded successfully`);
+    } else {
+      console.log(`⚠️  [Sentience] Uploaded ${uploadedCount}/${totalCount} screenshots`);
+      if (failedSequences.length > 0) {
+        console.log(`   Failed sequences: ${failedSequences.join(', ')}`);
+        console.log(`   Failed screenshots remain at: ${this.screenshotDir}`);
+      }
+    }
+  }
+
+  /**
+   * Upload a single screenshot to pre-signed URL.
+   * 
+   * @param sequence - Screenshot sequence number
+   * @param uploadUrl - Pre-signed upload URL
+   * @param metadata - Screenshot metadata
+   * @returns True if upload successful, false otherwise
+   */
+  private async _uploadSingleScreenshot(
+    sequence: number,
+    uploadUrl: string,
+    metadata: ScreenshotMetadata
+  ): Promise<boolean> {
+    try {
+      // Read image bytes from file
+      const imageBytes = await fsPromises.readFile(metadata.filepath);
+
+      // Upload to pre-signed URL
+      const statusCode = await this._uploadScreenshotToCloud(uploadUrl, imageBytes, metadata.format);
+
+      if (statusCode === 200) {
+        return true;
+      } else {
+        this.logger?.warn(`Screenshot ${sequence} upload failed: HTTP ${statusCode}`);
+        return false;
+      }
+    } catch (error: any) {
+      this.logger?.warn(`Screenshot ${sequence} upload error: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Upload screenshot data to cloud using pre-signed URL
+   */
+  private async _uploadScreenshotToCloud(
+    uploadUrl: string,
+    data: Buffer,
+    format: 'png' | 'jpeg'
+  ): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const url = new URL(uploadUrl);
+      const protocol = url.protocol === 'https:' ? https : http;
+
+      const options = {
+        hostname: url.hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: url.pathname + url.search,
+        method: 'PUT',
+        headers: {
+          'Content-Type': `image/${format}`,
+          'Content-Length': data.length,
+        },
+        timeout: 30000, // 30 second timeout per screenshot
+      };
+
+      const req = protocol.request(options, (res) => {
+        res.on('data', () => {});
+        res.on('end', () => {
+          resolve(res.statusCode || 500);
+        });
+      });
+
+      req.on('error', (error) => {
+        reject(error);
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Screenshot upload timeout'));
+      });
+
+      req.write(data);
+      req.end();
+    });
+  }
+
+  /**
+   * Delete local files after successful upload.
+   */
+  private async _cleanupFiles(): Promise<void> {
+    // Delete trace file
+    try {
+      if (fs.existsSync(this.tempFilePath)) {
+        await fsPromises.unlink(this.tempFilePath);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+
+    // Delete screenshot files and directory
+    if (fs.existsSync(this.screenshotDir) && this.uploadSuccessful) {
+      try {
+        // Delete all screenshot files
+        const files = await fsPromises.readdir(this.screenshotDir);
+        for (const file of files) {
+          if (file.startsWith('step_') && (file.endsWith('.jpeg') || file.endsWith('.png'))) {
+            await fsPromises.unlink(path.join(this.screenshotDir, file));
+          }
+        }
+
+        // Delete directory if empty
+        try {
+          await fsPromises.rmdir(this.screenshotDir);
+        } catch {
+          // Directory not empty (some uploads failed)
+        }
+      } catch (error: any) {
+        this.logger?.warn(`Failed to cleanup screenshots: ${error.message}`);
+      }
+    }
+  }
+
+  /**
    * Get unique identifier for this sink
    */
   getSinkType(): string {
