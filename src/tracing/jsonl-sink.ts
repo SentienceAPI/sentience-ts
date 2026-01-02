@@ -162,7 +162,10 @@ export class JsonlTraceSink extends TraceSink {
   private generateIndex(): void {
     try {
       const { writeTraceIndex } = require('./indexer');
-      writeTraceIndex(this.path);
+      // Use frontend format to ensure 'step' field is present (1-based)
+      // Frontend derives sequence from step.step - 1, so step must be valid
+      const indexPath = this.path.replace(/\.jsonl$/, '.index.json');
+      writeTraceIndex(this.path, indexPath, true);
     } catch (error: any) {
       // Non-fatal: log but don't crash
       console.log(`⚠️  Failed to generate trace index: ${error.message}`);

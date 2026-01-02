@@ -572,7 +572,10 @@ export class CloudTraceSink extends TraceSink {
   private generateIndex(): void {
     try {
       const { writeTraceIndex } = require('./indexer');
-      writeTraceIndex(this.tempFilePath);
+      // Use frontend format to ensure 'step' field is present (1-based)
+      // Frontend derives sequence from step.step - 1, so step must be valid
+      const indexPath = this.tempFilePath.replace('.jsonl', '.index.json');
+      writeTraceIndex(this.tempFilePath, indexPath, true);
     } catch (error: any) {
       // Non-fatal: log but don't crash
       this.logger?.warn(`Failed to generate trace index: ${error.message}`);
