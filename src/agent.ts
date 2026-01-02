@@ -214,15 +214,26 @@ export class SentienceAgent {
 
         // Emit snapshot event
         if (this.tracer) {
+          // Include ALL elements with full data for DOM tree display
+          // Use snap.elements (all elements) not filteredSnap.elements
           const snapshotData: any = {
-            url: filteredSnap.url,
-            element_count: filteredSnap.elements.length,
-            timestamp: filteredSnap.timestamp,
-            elements: filteredSnap.elements.slice(0, 50).map(el => ({
+            url: snap.url,
+            element_count: snap.elements.length,
+            timestamp: snap.timestamp,
+            elements: snap.elements.map(el => ({
               id: el.id,
-              bbox: el.bbox,
               role: el.role,
-              text: el.text?.substring(0, 50),
+              text: el.text,
+              importance: el.importance,
+              bbox: el.bbox,
+              visual_cues: el.visual_cues,
+              in_viewport: el.in_viewport,
+              is_occluded: el.is_occluded,
+              z_index: el.z_index,
+              rerank_index: el.rerank_index,
+              heuristic_index: el.heuristic_index,
+              ml_probability: el.ml_probability,
+              ml_score: el.ml_score,
             }))
           };
 

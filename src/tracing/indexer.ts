@@ -57,14 +57,25 @@ function computeSnapshotDigest(snapshotData: any): string {
   const elements = snapshotData.elements || [];
 
   // Canonicalize elements
-  const canonicalElements = elements.map((elem: any) => ({
-    id: elem.id,
-    role: elem.role || '',
-    text_norm: normalizeText(elem.text),
-    bbox: roundBBox(elem.bbox || { x: 0, y: 0, width: 0, height: 0 }),
-    is_primary: elem.is_primary || false,
-    is_clickable: elem.is_clickable || false,
-  }));
+  const canonicalElements = elements.map((elem: any) => {
+    // Extract is_primary and is_clickable from visual_cues if present
+    const visualCues = elem.visual_cues || {};
+    const isPrimary = (typeof visualCues === 'object' && visualCues !== null)
+      ? (visualCues.is_primary || false)
+      : (elem.is_primary || false);
+    const isClickable = (typeof visualCues === 'object' && visualCues !== null)
+      ? (visualCues.is_clickable || false)
+      : (elem.is_clickable || false);
+    
+    return {
+      id: elem.id,
+      role: elem.role || '',
+      text_norm: normalizeText(elem.text),
+      bbox: roundBBox(elem.bbox || { x: 0, y: 0, width: 0, height: 0 }),
+      is_primary: isPrimary,
+      is_clickable: isClickable,
+    };
+  });
 
   // Sort by element id for determinism
   canonicalElements.sort((a: { id?: number }, b: { id?: number }) => (a.id || 0) - (b.id || 0));
