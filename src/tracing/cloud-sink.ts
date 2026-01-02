@@ -225,7 +225,6 @@ export class CloudTraceSink extends TraceSink {
         console.error(`   Local trace preserved at: ${this.tempFilePath}`);
       });
 
-      console.log('📤 [Sentience] Trace upload started in background');
       return;
     }
 
@@ -268,7 +267,6 @@ export class CloudTraceSink extends TraceSink {
 
       // 4. Upload screenshots separately
       if (screenshots.size > 0) {
-        console.log(`📸 [Sentience] Uploading ${screenshots.size} screenshots...`);
         await this._uploadScreenshots(screenshots);
       }
 
@@ -294,15 +292,17 @@ export class CloudTraceSink extends TraceSink {
       }
 
       // 7. Upload cleaned trace to cloud
-      console.log(
-        `📤 [Sentience] Uploading trace to cloud (${compressedData.length} bytes)...`
-      );
+      if (this.logger) {
+        this.logger.info(`Uploading trace to cloud (${compressedData.length} bytes)`);
+      }
 
       const statusCode = await this._uploadToCloud(compressedData);
 
       if (statusCode === 200) {
         this.uploadSuccessful = true;
-        console.log('✅ [Sentience] Trace uploaded successfully');
+        if (this.logger) {
+          this.logger.info('Trace uploaded successfully');
+        }
 
         // Upload trace index file
         await this._uploadIndex();
@@ -409,7 +409,7 @@ export class CloudTraceSink extends TraceSink {
       writeTraceIndex(this.tempFilePath);
     } catch (error: any) {
       // Non-fatal: log but don't crash
-      console.log(`⚠️  Failed to generate trace index: ${error.message}`);
+      this.logger?.warn(`Failed to generate trace index: ${error.message}`);
     }
   }
 
@@ -449,14 +449,17 @@ export class CloudTraceSink extends TraceSink {
       const indexSize = compressedIndex.length;
 
       this.logger?.info(`Index file size: ${(indexSize / 1024).toFixed(2)} KB`);
-
-      console.log(`📤 [Sentience] Uploading trace index (${indexSize} bytes)...`);
+      if (this.logger) {
+        this.logger.info(`Uploading trace index (${indexSize} bytes)`);
+      }
 
       // Upload index to cloud storage
       const statusCode = await this._uploadIndexToCloud(uploadUrlResponse, compressedIndex);
 
       if (statusCode === 200) {
-        console.log('✅ [Sentience] Trace index uploaded successfully');
+        if (this.logger) {
+          this.logger.info('Trace index uploaded successfully');
+        }
 
         // Delete local index file after successful upload
         try {
@@ -466,12 +469,10 @@ export class CloudTraceSink extends TraceSink {
         }
       } else {
         this.logger?.warn(`Index upload failed: HTTP ${statusCode}`);
-        console.log(`⚠️  [Sentience] Index upload failed: HTTP ${statusCode}`);
       }
     } catch (error: any) {
       // Non-fatal: log but don't crash
       this.logger?.warn(`Error uploading trace index: ${error.message}`);
-      console.log(`⚠️  [Sentience] Error uploading trace index: ${error.message}`);
     }
   }
 
@@ -767,7 +768,9 @@ export class CloudTraceSink extends TraceSink {
     const uploadUrls = await this._requestScreenshotUrls(sequences);
 
     if (uploadUrls.size === 0) {
-      console.log('⚠️  [Sentience] No screenshot upload URLs received, skipping upload');
+      this.logger?.warn(
+        'No screenshot upload URLs received, skipping upload. This may indicate API key permission issue, gateway error, or network problem.'
+      );
       return;
     }
 
@@ -810,11 +813,17 @@ export class CloudTraceSink extends TraceSink {
     // 3. Report results
     const totalCount = uploadUrls.size;
     if (uploadedCount === totalCount) {
-      console.log(`✅ [Sentience] All ${totalCount} screenshots uploaded successfully`);
+      const totalSizeMB = this.screenshotTotalSizeBytes / 1024 / 1024;
+      if (this.logger) {
+        this.logger.info(
+          `All ${totalCount} screenshots uploaded successfully (total size: ${totalSizeMB.toFixed(2)} MB)`
+        );
+      }
     } else {
-      console.log(`⚠️  [Sentience] Uploaded ${uploadedCount}/${totalCount} screenshots`);
-      if (failedSequences.length > 0) {
-        console.log(`   Failed sequences: ${failedSequences.join(', ')}`);
+      if (this.logger) {
+        this.logger.warn(
+          `Uploaded ${uploadedCount}/${totalCount} screenshots. Failed sequences: ${failedSequences.length > 0 ? failedSequences.join(', ') : 'none'}`
+        );
       }
     }
   }
