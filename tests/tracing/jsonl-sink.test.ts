@@ -33,28 +33,6 @@ describe('JsonlTraceSink', () => {
     throw new Error(`Failed to read file after ${maxAttempts} attempts`);
   }
 
-  /**
-   * Helper function to read file with retry logic for Windows EPERM errors
-   * Windows file handles may not be released immediately after close()
-   */
-  async function readFileWithRetry(filePath: string, maxAttempts: number = 10): Promise<string> {
-    let attempts = 0;
-    while (attempts < maxAttempts) {
-      try {
-        return fs.readFileSync(filePath, 'utf-8');
-      } catch (err: any) {
-        if (err.code === 'EPERM' && attempts < maxAttempts - 1) {
-          // File still locked, wait and retry
-          await new Promise(resolve => setTimeout(resolve, 50));
-          attempts++;
-        } else {
-          throw err; // Re-throw if not EPERM or max attempts reached
-        }
-      }
-    }
-    throw new Error(`Failed to read file after ${maxAttempts} attempts`);
-  }
-
   beforeEach(async () => {
     // Wait a bit to ensure previous test's file handles are fully released (Windows needs this)
     await new Promise(resolve => setTimeout(resolve, 150));
