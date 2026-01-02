@@ -609,9 +609,30 @@ export class CloudTraceSink extends TraceSink {
         return;
       }
 
-      // Read and compress index file
-      const indexData = await fsPromises.readFile(indexPath);
-      const compressedIndex = zlib.gzipSync(indexData);
+      // Read index file and update trace_file.path to cloud storage path
+      const indexContent = await fsPromises.readFile(indexPath, 'utf-8');
+      const indexJson = JSON.parse(indexContent);
+
+      // Extract cloud storage path from trace upload URL
+      // uploadUrl format: https://...digitaloceanspaces.com/traces/{run_id}.jsonl.gz
+      // Extract path: traces/{run_id}.jsonl.gz
+      try {
+        const parsedUrl = new URL(this.uploadUrl);
+        // Extract path after domain (e.g., /traces/run-123.jsonl.gz -> traces/run-123.jsonl.gz)
+        const cloudTracePath = parsedUrl.pathname.startsWith('/')
+          ? parsedUrl.pathname.substring(1)
+          : parsedUrl.pathname;
+        // Update trace_file.path in index
+        if (indexJson.trace_file && typeof indexJson.trace_file === 'object') {
+          indexJson.trace_file.path = cloudTracePath;
+        }
+      } catch (error: any) {
+        this.logger?.warn(`Failed to extract cloud path from upload URL: ${error.message}`);
+      }
+
+      // Serialize updated index to JSON
+      const updatedIndexData = Buffer.from(JSON.stringify(indexJson, null, 2), 'utf-8');
+      const compressedIndex = zlib.gzipSync(updatedIndexData);
       const indexSize = compressedIndex.length;
       this.indexFileSizeBytes = indexSize; // Track index file size
 
