@@ -152,7 +152,7 @@ export class BrowserEvaluator {
           url: window.location.href
         }),
         undefined,
-        { error: 'Could not gather diagnostics' }
+        { sentience_defined: false, extension_id: 'not set', url: 'unknown' }
       );
       
       throw new Error(

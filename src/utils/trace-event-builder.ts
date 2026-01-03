@@ -228,7 +228,7 @@ export class TraceEventBuilder {
         role: el.role,
         text: el.text || undefined,
         importance: el.importance,
-        bounding_box: {
+        bbox: {
           x: el.bbox.x,
           y: el.bbox.y,
           width: el.bbox.width,

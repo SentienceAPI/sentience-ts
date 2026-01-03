@@ -5,15 +5,16 @@
 
 import { SentienceBrowser } from './browser';
 import { snapshot, SnapshotOptions } from './snapshot';
-import { click, typeText, press } from './actions';
 import { Snapshot, Element, ActionResult } from './types';
 import { LLMProvider, LLMResponse } from './llm-provider';
 import { Tracer } from './tracing/tracer';
 import { TraceEventData, TraceElement } from './tracing/types';
-import { randomUUID, createHash } from 'crypto';
+import { randomUUID } from 'crypto';
 import { SnapshotDiff } from './snapshot-diff';
 import { ElementFilter } from './utils/element-filter';
 import { TraceEventBuilder } from './utils/trace-event-builder';
+import { LLMInteractionHandler } from './utils/llm-interaction-handler';
+import { ActionExecutor } from './utils/action-executor';
 
 /**
  * Execution result from agent.act()
@@ -94,6 +95,8 @@ export class SentienceAgent {
   private tokenUsage: TokenStats;
   private showOverlay: boolean;
   private previousSnapshot?: Snapshot;
+  private llmHandler: LLMInteractionHandler;
+  private actionExecutor: ActionExecutor;
 
   /**
    * Initialize Sentience Agent
@@ -127,6 +130,9 @@ export class SentienceAgent {
       byAction: []
     };
     
+    // Initialize handlers
+    this.llmHandler = new LLMInteractionHandler(this.llm, this.verbose);
+    this.actionExecutor = new ActionExecutor(this.browser, this.verbose);
   }
 
 
@@ -143,6 +149,27 @@ export class SentienceAgent {
       width: el.bbox.width,
       height: el.bbox.height,
     };
+  }
+
+  /**
+   * @deprecated Use LLMInteractionHandler.buildContext() instead
+   */
+  private buildContext(snap: Snapshot, goal: string): string {
+    return this.llmHandler.buildContext(snap, goal);
+  }
+
+  /**
+   * @deprecated Use LLMInteractionHandler.queryLLM() instead
+   */
+  private async queryLLM(domContext: string, goal: string): Promise<LLMResponse> {
+    return this.llmHandler.queryLLM(domContext, goal);
+  }
+
+  /**
+   * @deprecated Use ActionExecutor.executeAction() instead
+   */
+  private async executeAction(actionStr: string, snap: Snapshot): Promise<AgentActResult> {
+    return this.actionExecutor.executeAction(actionStr, snap);
   }
 
   /**
@@ -293,18 +320,11 @@ export class SentienceAgent {
           this.tracer.emit('snapshot', snapshotData, stepId);
         }
 
-        // 2. GROUND: Filter elements using ElementFilter
-        const filteredElements = ElementFilter.filterByGoal(snap, goal, this.snapshotLimit);
-        const filteredSnap: Snapshot = {
-          ...snap,
-          elements: filteredElements
-        };
-        
-        // Format elements for LLM context
-        const context = this.buildContext(filteredSnap, goal);
+        // 2. GROUND: Format elements for LLM context (filteredSnap already created above)
+        const context = this.llmHandler.buildContext(filteredSnap, goal);
 
         // 3. THINK: Query LLM for next action
-        const llmResponse = await this.queryLLM(context, goal);
+        const llmResponse = await this.llmHandler.queryLLM(context, goal);
 
         if (this.verbose) {
           console.log(`🧠 LLM Decision: ${llmResponse.content}`);
@@ -324,10 +344,10 @@ export class SentienceAgent {
         this.trackTokens(goal, llmResponse);
 
         // Parse action from LLM response
-        const actionStr = llmResponse.content.trim();
+        const actionStr = this.llmHandler.extractAction(llmResponse);
 
         // 4. EXECUTE: Parse and run action
-        const result = await this.executeAction(actionStr, filteredSnap);
+        const result = await this.actionExecutor.executeAction(actionStr, filteredSnap);
 
         const durationMs = Date.now() - startTime;
         result.durationMs = durationMs;
@@ -413,146 +433,6 @@ export class SentienceAgent {
   }
 
 
-  /**
-   * Convert snapshot elements to token-efficient prompt string
-   * Format: [ID] <role> "text" {cues} @ (x,y) (Imp:score)
-   * Note: elements are already filtered by filterElements() in act()
-   */
-  private buildContext(snap: Snapshot, goal: string): string {
-    const lines: string[] = [];
-
-    for (const el of snap.elements) {
-      // Extract visual cues
-      const cues: string[] = [];
-      if (el.visual_cues.is_primary) cues.push('PRIMARY');
-      if (el.visual_cues.is_clickable) cues.push('CLICKABLE');
-      if (el.visual_cues.background_color_name) {
-        cues.push(`color:${el.visual_cues.background_color_name}`);
-      }
-
-      // Format element line
-      const cuesStr = cues.length > 0 ? ` {${cues.join(',')}}` : '';
-      const text = el.text || '';
-      const textPreview = text.length > 50 ? text.substring(0, 50) + '...' : text;
-
-      lines.push(
-        `[${el.id}] <${el.role}> "${textPreview}"${cuesStr} ` +
-        `@ (${Math.floor(el.bbox.x)},${Math.floor(el.bbox.y)}) (Imp:${el.importance})`
-      );
-    }
-
-    return lines.join('\n');
-  }
-
-  /**
-   * Query LLM with standardized prompt template
-   */
-  private async queryLLM(domContext: string, goal: string): Promise<LLMResponse> {
-    const systemPrompt = `You are an AI web automation agent.
-
-GOAL: ${goal}
-
-VISIBLE ELEMENTS (sorted by importance, max ${this.snapshotLimit}):
-${domContext}
-
-VISUAL CUES EXPLAINED:
-- {PRIMARY}: Main call-to-action element on the page
-- {CLICKABLE}: Element is clickable
-- {color:X}: Background color name
-
-RESPONSE FORMAT:
-Return ONLY the function call, no explanation or markdown.
-
-Available actions:
-- CLICK(id) - Click element by ID
-- TYPE(id, "text") - Type text into element
-- PRESS("key") - Press keyboard key (Enter, Escape, Tab, ArrowDown, etc)
-- FINISH() - Task complete
-
-Examples:
-- CLICK(42)
-- TYPE(15, "magic mouse")
-- PRESS("Enter")
-- FINISH()
-`;
-
-    const userPrompt = 'What is the next step to achieve the goal?';
-
-    return await this.llm.generate(systemPrompt, userPrompt, { temperature: 0.0 });
-  }
-
-  /**
-   * Parse action string and execute SDK call
-   */
-  private async executeAction(actionStr: string, snap: Snapshot): Promise<AgentActResult> {
-    // Parse CLICK(42)
-    let match = actionStr.match(/CLICK\s*\(\s*(\d+)\s*\)/i);
-    if (match) {
-      const elementId = parseInt(match[1], 10);
-      const result = await click(this.browser, elementId);
-      return {
-        success: result.success,
-        action: 'click',
-        elementId,
-        outcome: result.outcome,
-        urlChanged: result.url_changed,
-        durationMs: 0,
-        attempt: 0,
-        goal: ''
-      };
-    }
-
-    // Parse TYPE(42, "hello world")
-    match = actionStr.match(/TYPE\s*\(\s*(\d+)\s*,\s*["']([^"']*)["']\s*\)/i);
-    if (match) {
-      const elementId = parseInt(match[1], 10);
-      const text = match[2];
-      const result = await typeText(this.browser, elementId, text);
-      return {
-        success: result.success,
-        action: 'type',
-        elementId,
-        text,
-        outcome: result.outcome,
-        durationMs: 0,
-        attempt: 0,
-        goal: ''
-      };
-    }
-
-    // Parse PRESS("Enter")
-    match = actionStr.match(/PRESS\s*\(\s*["']([^"']+)["']\s*\)/i);
-    if (match) {
-      const key = match[1];
-      const result = await press(this.browser, key);
-      return {
-        success: result.success,
-        action: 'press',
-        key,
-        outcome: result.outcome,
-        durationMs: 0,
-        attempt: 0,
-        goal: ''
-      };
-    }
-
-    // Parse FINISH()
-    if (/FINISH\s*\(\s*\)/i.test(actionStr)) {
-      return {
-        success: true,
-        action: 'finish',
-        message: 'Task marked as complete',
-        durationMs: 0,
-        attempt: 0,
-        goal: ''
-      };
-    }
-
-    throw new Error(
-      `Unknown action format: ${actionStr}\n` +
-      `Expected: CLICK(id), TYPE(id, "text"), PRESS("key"), or FINISH()`
-    );
-  }
 
   /**
    * Track token usage for analytics
