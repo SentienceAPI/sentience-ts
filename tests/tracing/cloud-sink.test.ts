@@ -416,10 +416,10 @@ describe('CloudTraceSink', () => {
         apiUrl
       );
 
-      sink.emit({ v: 1, type: 'run_start', seq: 1, data: { agent: 'TestAgent' } });
-      sink.emit({ v: 1, type: 'step_start', seq: 2, data: { step: 1 } });
-      sink.emit({ v: 1, type: 'snapshot', seq: 3, data: { url: 'https://example.com' } });
-      sink.emit({ v: 1, type: 'run_end', seq: 4, data: { steps: 1 } });
+      sink.emit({ v: 1, type: 'run_start', seq: 1, data: { agent: 'TestAgent' }, ts: '100', run_id: runId });
+      sink.emit({ v: 1, type: 'step_start', seq: 2, data: { steps: 1 }, ts: '101', run_id: runId });
+      sink.emit({ v: 1, type: 'snapshot', seq: 3, data: { url: 'https://example.com' }, ts: '102', run_id: runId });
+      sink.emit({ v: 1, type: 'run_end', seq: 4, data: { steps: 1 }, ts: '103', run_id: runId });
 
       await sink.close();
 
