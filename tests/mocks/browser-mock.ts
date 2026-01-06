@@ -141,3 +141,4 @@ export class MockBrowser implements IBrowser {
     return this.mockPage;
   }
 }
+

@@ -223,6 +223,7 @@ export async function click(
  * @param elementId - Element ID from snapshot (must be a text input element)
  * @param text - Text to type
  * @param takeSnapshot - Take snapshot after action (default: false)
+ * @param delayMs - Delay between keystrokes in milliseconds for human-like typing (default: 0)
  * @returns ActionResult with success status, outcome, duration, and optional snapshot
  *
  * @example
@@ -230,7 +231,11 @@ export async function click(
  * const snap = await snapshot(browser);
  * const searchBox = find(snap, 'role=searchbox');
  * if (searchBox) {
+ *   // Type instantly (default behavior)
  *   await typeText(browser, searchBox.id, 'Hello World');
+ *
+ *   // Type with human-like delay (~10ms between keystrokes)
+ *   await typeText(browser, searchBox.id, 'Hello World', false, 10);
  * }
  * ```
  */
@@ -238,7 +243,8 @@ export async function typeText(
   browser: IBrowser,
   elementId: number,
   text: string,
-  takeSnapshot: boolean = false
+  takeSnapshot: boolean = false,
+  delayMs: number = 0
 ): Promise<ActionResult> {
   const page = browser.getPage();
   if (!page) {
@@ -270,8 +276,98 @@ export async function typeText(
     };
   }
 
-  // Type using Playwright keyboard
-  await page.keyboard.type(text);
+  // Type using Playwright keyboard with optional delay between keystrokes
+  await page.keyboard.type(text, { delay: delayMs });
+
+  const durationMs = Date.now() - startTime;
+  const urlAfter = page.url();
+  const urlChanged = urlBefore !== urlAfter;
+
+  const outcome = urlChanged ? 'navigated' : 'dom_updated';
+
+  let snapshotAfter: Snapshot | undefined;
+  if (takeSnapshot) {
+    snapshotAfter = await snapshot(browser);
+  }
+
+  return {
+    success: true,
+    duration_ms: durationMs,
+    outcome,
+    url_changed: urlChanged,
+    snapshot_after: snapshotAfter,
+  };
+}
+
+/**
+ * Scroll an element into view
+ *
+ * Scrolls the page so that the specified element is visible in the viewport.
+ * Uses the element registry to find the element and scrollIntoView() to scroll it.
+ *
+ * @param browser - SentienceBrowser instance
+ * @param elementId - Element ID from snapshot to scroll into view
+ * @param behavior - Scroll behavior: 'smooth' for animated scroll, 'instant' for immediate (default: 'smooth')
+ * @param block - Vertical alignment: 'start', 'center', 'end', 'nearest' (default: 'center')
+ * @param takeSnapshot - Take snapshot after action (default: false)
+ * @returns ActionResult with success status, outcome, duration, and optional snapshot
+ *
+ * @example
+ * ```typescript
+ * const snap = await snapshot(browser);
+ * const button = find(snap, 'role=button[name="Submit"]');
+ * if (button) {
+ *   // Scroll element into view with smooth animation
+ *   await scrollTo(browser, button.id);
+ *
+ *   // Scroll instantly to top of viewport
+ *   await scrollTo(browser, button.id, 'instant', 'start');
+ * }
+ * ```
+ */
+export async function scrollTo(
+  browser: IBrowser,
+  elementId: number,
+  behavior: 'smooth' | 'instant' | 'auto' = 'smooth',
+  block: 'start' | 'center' | 'end' | 'nearest' = 'center',
+  takeSnapshot: boolean = false
+): Promise<ActionResult> {
+  const page = browser.getPage();
+  if (!page) {
+    throw new Error('Browser not started. Call start() first.');
+  }
+  const startTime = Date.now();
+  const urlBefore = page.url();
+
+  // Scroll element into view using the element registry
+  const scrolled = await BrowserEvaluator.evaluate(
+    page,
+    (args: { id: number; behavior: string; block: string }) => {
+      const el = (window as any).sentience_registry[args.id];
+      if (el && el.scrollIntoView) {
+        el.scrollIntoView({
+          behavior: args.behavior,
+          block: args.block,
+          inline: 'nearest',
+        });
+        return true;
+      }
+      return false;
+    },
+    { id: elementId, behavior, block }
+  );
+
+  if (!scrolled) {
+    return {
+      success: false,
+      duration_ms: Date.now() - startTime,
+      outcome: 'error',
+      error: { code: 'scroll_failed', reason: 'Element not found or not scrollable' },
+    };
+  }
+
+  // Wait a bit for scroll to complete (especially for smooth scrolling)
+  await page.waitForTimeout(behavior === 'smooth' ? 500 : 100);
 
   const durationMs = Date.now() - startTime;
   const urlAfter = page.url();

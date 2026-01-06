@@ -2,7 +2,7 @@
  * Tests for actions (click, type, press, clickRect)
  */
 
-import { SentienceBrowser, click, typeText, press, clickRect, snapshot, find, BBox } from '../src';
+import { SentienceBrowser, click, typeText, press, scrollTo, clickRect, snapshot, find, BBox } from '../src';
 import { createTestBrowser, getPageOrThrow } from './test-utils';
 
 describe('Actions', () => {
@@ -113,6 +113,121 @@ describe('Actions', () => {
         const result = await press(browser, 'Enter');
         expect(result.success).toBe(true);
         expect(result.duration_ms).toBeGreaterThan(0);
+      } finally {
+        await browser.close();
+      }
+    }, 60000);
+  });
+
+  describe('scrollTo', () => {
+    it('should scroll an element into view', async () => {
+      const browser = await createTestBrowser();
+
+      try {
+        const page = getPageOrThrow(browser);
+        await page.goto('https://example.com');
+        await page.waitForLoadState('networkidle', { timeout: 10000 });
+
+        const snap = await snapshot(browser);
+        // Find an element to scroll to
+        const elements = snap.elements.filter(el => el.role === 'link');
+
+        if (elements.length > 0) {
+          // Get the last element which might be out of viewport
+          const element = elements.length > 1 ? elements[elements.length - 1] : elements[0];
+          const result = await scrollTo(browser, element.id);
+          expect(result.success).toBe(true);
+          expect(result.duration_ms).toBeGreaterThan(0);
+          expect(['navigated', 'dom_updated']).toContain(result.outcome);
+        }
+      } finally {
+        await browser.close();
+      }
+    }, 60000);
+
+    it('should scroll with instant behavior', async () => {
+      const browser = await createTestBrowser();
+
+      try {
+        const page = getPageOrThrow(browser);
+        await page.goto('https://example.com');
+        await page.waitForLoadState('networkidle', { timeout: 10000 });
+
+        const snap = await snapshot(browser);
+        const elements = snap.elements.filter(el => el.role === 'link');
+
+        if (elements.length > 0) {
+          const element = elements[0];
+          const result = await scrollTo(browser, element.id, 'instant', 'start');
+          expect(result.success).toBe(true);
+          expect(result.duration_ms).toBeGreaterThan(0);
+        }
+      } finally {
+        await browser.close();
+      }
+    }, 60000);
+
+    it('should take snapshot after scroll when requested', async () => {
+      const browser = await createTestBrowser();
+
+      try {
+        const page = getPageOrThrow(browser);
+        await page.goto('https://example.com');
+        await page.waitForLoadState('networkidle', { timeout: 10000 });
+
+        const snap = await snapshot(browser);
+        const elements = snap.elements.filter(el => el.role === 'link');
+
+        if (elements.length > 0) {
+          const element = elements[0];
+          const result = await scrollTo(browser, element.id, 'smooth', 'center', true);
+          expect(result.success).toBe(true);
+          expect(result.snapshot_after).toBeDefined();
+          expect(result.snapshot_after?.status).toBe('success');
+        }
+      } finally {
+        await browser.close();
+      }
+    }, 60000);
+
+    it('should fail for invalid element ID', async () => {
+      const browser = await createTestBrowser();
+
+      try {
+        const page = getPageOrThrow(browser);
+        await page.goto('https://example.com');
+        await page.waitForLoadState('networkidle', { timeout: 10000 });
+
+        // Try to scroll to non-existent element
+        const result = await scrollTo(browser, 99999);
+        expect(result.success).toBe(false);
+        expect(result.error).toBeDefined();
+        expect(result.error?.code).toBe('scroll_failed');
+      } finally {
+        await browser.close();
+      }
+    }, 60000);
+  });
+
+  describe('typeText with delay', () => {
+    it('should type text with human-like delay', async () => {
+      const browser = await createTestBrowser();
+
+      try {
+        const page = getPageOrThrow(browser);
+        await page.goto('https://example.com');
+        await page.waitForLoadState('networkidle', { timeout: 10000 });
+
+        const snap = await snapshot(browser);
+        const textbox = find(snap, 'role=textbox');
+
+        if (textbox) {
+          // Test with 10ms delay between keystrokes
+          const result = await typeText(browser, textbox.id, 'hello', false, 10);
+          expect(result.success).toBe(true);
+          // Duration should be longer due to delays (at least 5 chars * 10ms = 50ms)
+          expect(result.duration_ms).toBeGreaterThanOrEqual(50);
+        }
       } finally {
         await browser.close();
       }
