@@ -141,6 +141,33 @@ await browser.close();
 
 ---
 
+## 🆕 What's New (2026-01-06)
+
+### Human-like Typing
+Add realistic delays between keystrokes to mimic human typing:
+```typescript
+// Type instantly (default)
+await typeText(browser, elementId, 'Hello World');
+
+// Type with human-like delay (~10ms between keystrokes)
+await typeText(browser, elementId, 'Hello World', false, 10);
+```
+
+### Scroll to Element
+Scroll elements into view with smooth animation:
+```typescript
+const snap = await snapshot(browser);
+const button = find(snap, 'role=button text~"Submit"');
+
+// Scroll element into view with smooth animation
+await scrollTo(browser, button.id);
+
+// Scroll instantly to top of viewport
+await scrollTo(browser, button.id, 'instant', 'start');
+```
+
+---
+
 <details>
 <summary><h2>📊 Agent Execution Tracing (NEW in v0.3.1)</h2></summary>
 
