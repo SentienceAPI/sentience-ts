@@ -42,3 +42,19 @@ export {
 
 // Tracing Layer (v0.3.1+)
 export { Tracer, TraceSink, JsonlTraceSink, TraceEvent, TraceEventData } from './tracing';
+
+// Verification Layer (agent assertion loop)
+export {
+  AssertOutcome,
+  AssertContext,
+  Predicate,
+  urlMatches,
+  urlContains,
+  exists,
+  notExists,
+  elementCount,
+  allOf,
+  anyOf,
+  custom,
+} from './verification';
+export { AgentRuntime, AssertionRecord } from './agent-runtime';

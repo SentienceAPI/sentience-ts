@@ -13,6 +13,7 @@ npx playwright install chromium
 ```
 
 **For local development:**
+
 ```bash
 npm install
 npm run build
@@ -44,7 +45,7 @@ const response = await agent.execute(
 console.log(response); // "I found the top result for wireless mouse on Amazon. It's priced at $24.99..."
 
 // Follow-up questions maintain context
-const followUp = await agent.chat("Add it to cart");
+const followUp = await agent.chat('Add it to cart');
 console.log(followUp);
 
 await browser.close();
@@ -144,7 +145,9 @@ await browser.close();
 ## 🆕 What's New (2026-01-06)
 
 ### Human-like Typing
+
 Add realistic delays between keystrokes to mimic human typing:
+
 ```typescript
 // Type instantly (default)
 await typeText(browser, elementId, 'Hello World');
@@ -154,7 +157,9 @@ await typeText(browser, elementId, 'Hello World', false, 10);
 ```
 
 ### Scroll to Element
+
 Scroll elements into view with smooth animation:
+
 ```typescript
 const snap = await snapshot(browser);
 const button = find(snap, 'role=button text~"Submit"');
@@ -181,7 +186,7 @@ import {
   SentienceAgent,
   OpenAIProvider,
   Tracer,
-  JsonlTraceSink
+  JsonlTraceSink,
 } from 'sentienceapi';
 import { randomUUID } from 'crypto';
 
@@ -235,6 +240,38 @@ Traces are **100% compatible** with Python SDK traces - use the same tools to an
 
 </details>
 
+<details>
+<summary><h2>🔍 Agent Runtime Verification</h2></summary>
+
+`AgentRuntime` provides assertion predicates for runtime verification in agent loops, enabling programmatic verification of browser state during execution.
+
+```typescript
+import { SentienceBrowser } from 'sentienceapi';
+import { AgentRuntime, urlContains, exists, allOf } from 'sentienceapi';
+import { createTracer } from 'sentienceapi';
+
+const browser = new SentienceBrowser();
+await browser.start();
+const tracer = await createTracer({ runId: 'my-run', uploadTrace: false });
+const runtime = new AgentRuntime(browser, browser.getPage(), tracer);
+
+// Navigate and take snapshot
+await browser.getPage().goto('https://example.com');
+runtime.beginStep('Verify page');
+await runtime.snapshot();
+
+// Run assertions
+runtime.assert(urlContains('example.com'), 'on_correct_domain');
+runtime.assert(exists('role=heading'), 'has_heading');
+runtime.assertDone(exists("text~'Example'"), 'task_complete');
+
+console.log(`Task done: ${runtime.isTaskDone}`);
+```
+
+**See example:** [examples/agent-runtime-verification.ts](examples/agent-runtime-verification.ts)
+
+</details>
+
 ---
 
 <details>
@@ -261,14 +298,14 @@ async function main() {
     console.log(`Found ${snap.elements.length} elements`);
 
     // Find first product in viewport using spatial filtering
-    const products = snap.elements
-      .filter(el =>
+    const products = snap.elements.filter(
+      el =>
         el.role === 'link' &&
         el.visual_cues.is_clickable &&
         el.in_viewport &&
         !el.is_occluded &&
-        el.bbox.y < 600  // First row
-      );
+        el.bbox.y < 600 // First row
+    );
 
     if (products.length > 0) {
       // Sort by position (left to right, top to bottom)
@@ -323,12 +360,14 @@ main();
 **`snapshot(browser, options?)`** - Capture page state with AI-ranked elements
 
 Features:
+
 - Returns semantic elements with roles, text, importance scores, and bounding boxes
 - Optional screenshot capture (PNG/JPEG)
 - Optional visual overlay to see what elements are detected
 - TypeScript types for type safety
 
 **Example:**
+
 ```typescript
 const snap = await snapshot(browser, { screenshot: true, show_overlay: true });
 
@@ -353,6 +392,7 @@ for (const element of snap.elements) {
 - Powerful query DSL with multiple operators
 
 **Query Examples:**
+
 ```typescript
 // Find by role and text
 const button = find(snap, 'role=button text="Sign in"');
@@ -393,12 +433,13 @@ All actions return `ActionResult` with success status, timing, and outcome:
 const result = await click(browser, element.id);
 
 console.log(`Success: ${result.success}`);
-console.log(`Outcome: ${result.outcome}`);  // "navigated", "dom_updated", "error"
+console.log(`Outcome: ${result.outcome}`); // "navigated", "dom_updated", "error"
 console.log(`Duration: ${result.duration_ms}ms`);
 console.log(`URL changed: ${result.url_changed}`);
 ```
 
 **Coordinate-based clicking:**
+
 ```typescript
 import { clickRect } from './src';
 
@@ -416,7 +457,7 @@ if (element) {
     x: element.bbox.x,
     y: element.bbox.y,
     w: element.bbox.width,
-    h: element.bbox.height
+    h: element.bbox.height,
   });
 }
 ```
@@ -430,6 +471,7 @@ if (element) {
 - **`expect(browser, selector)`** - Assertion helper with fluent API
 
 **Examples:**
+
 ```typescript
 // Wait for element (auto-detects optimal interval based on API usage)
 const result = await waitFor(browser, 'role=button text="Submit"', 10000);
@@ -447,9 +489,9 @@ const result = await waitFor(browser, 'role=button', 5000, undefined, true);
 const result = await waitFor(browser, 'role=button', 5000, 500, false);
 
 // Semantic wait conditions
-await waitFor(browser, 'clickable=true', 5000);  // Wait for clickable element
-await waitFor(browser, 'importance>100', 5000);  // Wait for important element
-await waitFor(browser, 'role=link visible=true', 5000);  // Wait for visible link
+await waitFor(browser, 'clickable=true', 5000); // Wait for clickable element
+await waitFor(browser, 'importance>100', 5000); // Wait for important element
+await waitFor(browser, 'role=link visible=true', 5000); // Wait for visible link
 
 // Assertions
 await expect(browser, 'role=button text="Submit"').toExist(5000);
@@ -475,7 +517,7 @@ import { showOverlay, clearOverlay } from 'sentienceapi';
 const snap = await snapshot(browser);
 
 // Show overlay anytime without re-snapshotting
-await showOverlay(browser, snap);  // Auto-clears after 5 seconds
+await showOverlay(browser, snap); // Auto-clears after 5 seconds
 
 // Highlight specific target element in red
 const button = find(snap, 'role=button text~"Submit"');
@@ -487,11 +529,13 @@ await clearOverlay(browser);
 ```
 
 **Color Coding:**
+
 - 🔴 Red: Target element
 - 🔵 Blue: Primary elements (`is_primary=true`)
 - 🟢 Green: Regular interactive elements
 
 **Visual Indicators:**
+
 - Border thickness/opacity scales with importance
 - Semi-transparent fill
 - Importance badges
@@ -504,21 +548,23 @@ await clearOverlay(browser);
 <summary><h3>📄 Content Reading</h3></summary>
 
 **`read(browser, options?)`** - Extract page content
+
 - `format: "text"` - Plain text extraction
 - `format: "markdown"` - High-quality markdown conversion (uses Turndown)
 - `format: "raw"` - Cleaned HTML (default)
 
 **Example:**
+
 ```typescript
 import { read } from './src';
 
 // Get markdown content
 const result = await read(browser, { format: 'markdown' });
-console.log(result.content);  // Markdown text
+console.log(result.content); // Markdown text
 
 // Get plain text
 const result = await read(browser, { format: 'text' });
-console.log(result.content);  // Plain text
+console.log(result.content); // Plain text
 ```
 
 </details>
@@ -527,11 +573,13 @@ console.log(result.content);  // Plain text
 <summary><h3>📷 Screenshots</h3></summary>
 
 **`screenshot(browser, options?)`** - Standalone screenshot capture
+
 - Returns base64-encoded data URL
 - PNG or JPEG format
 - Quality control for JPEG (1-100)
 
 **Example:**
+
 ```typescript
 import { screenshot } from './src';
 import { writeFileSync } from 'fs';
@@ -558,6 +606,7 @@ const dataUrl = await screenshot(browser, { format: 'jpeg', quality: 85 });
 Find buttons, links, or any UI elements by their visible text without needing element IDs or CSS selectors. Returns exact pixel coordinates for each match.
 
 **Example:**
+
 ```typescript
 import { SentienceBrowser, findTextRect, clickRect } from 'sentienceapi';
 
@@ -565,8 +614,8 @@ const browser = await SentienceBrowser.create();
 await browser.getPage().goto('https://example.com');
 
 // Find "Sign In" button (simple string syntax)
-const result = await findTextRect(browser.getPage(), "Sign In");
-if (result.status === "success" && result.results) {
+const result = await findTextRect(browser.getPage(), 'Sign In');
+if (result.status === 'success' && result.results) {
   const firstMatch = result.results[0];
   console.log(`Found at: (${firstMatch.rect.x}, ${firstMatch.rect.y})`);
   console.log(`In viewport: ${firstMatch.in_viewport}`);
@@ -577,30 +626,31 @@ if (result.status === "success" && result.results) {
       x: firstMatch.rect.x,
       y: firstMatch.rect.y,
       w: firstMatch.rect.width,
-      h: firstMatch.rect.height
+      h: firstMatch.rect.height,
     });
   }
 }
 ```
 
 **Advanced Options:**
+
 ```typescript
 // Case-sensitive search
 const result = await findTextRect(browser.getPage(), {
-  text: "LOGIN",
-  caseSensitive: true
+  text: 'LOGIN',
+  caseSensitive: true,
 });
 
 // Whole word only (won't match "login" as part of "loginButton")
 const result = await findTextRect(browser.getPage(), {
-  text: "log",
-  wholeWord: true
+  text: 'log',
+  wholeWord: true,
 });
 
 // Find multiple matches
 const result = await findTextRect(browser.getPage(), {
-  text: "Buy",
-  maxResults: 10
+  text: 'Buy',
+  maxResults: 10,
 });
 for (const match of result.results || []) {
   if (match.in_viewport) {
@@ -611,6 +661,7 @@ for (const match of result.results || []) {
 ```
 
 **Returns:** Promise<TextRectSearchResult> with:
+
 - **`status`**: "success" or "error"
 - **`results`**: Array of `TextMatch` objects with:
   - `text` - The matched text
@@ -620,6 +671,7 @@ for (const match of result.results || []) {
   - `in_viewport` - Whether visible in current viewport
 
 **Use Cases:**
+
 - Find buttons/links by visible text without CSS selectors
 - Get exact pixel coordinates for click automation
 - Verify text visibility and position on page
@@ -641,15 +693,15 @@ for (const match of result.results || []) {
 Elements returned by `snapshot()` have the following properties:
 
 ```typescript
-element.id              // Unique identifier for interactions
-element.role            // ARIA role (button, link, textbox, heading, etc.)
-element.text            // Visible text content
-element.importance      // AI importance score (0-1000)
-element.bbox            // Bounding box (x, y, width, height)
-element.visual_cues     // Visual analysis (is_primary, is_clickable, background_color)
-element.in_viewport     // Is element visible in current viewport?
-element.is_occluded     // Is element covered by other elements?
-element.z_index         // CSS stacking order
+element.id; // Unique identifier for interactions
+element.role; // ARIA role (button, link, textbox, heading, etc.)
+element.text; // Visible text content
+element.importance; // AI importance score (0-1000)
+element.bbox; // Bounding box (x, y, width, height)
+element.visual_cues; // Visual analysis (is_primary, is_clickable, background_color)
+element.in_viewport; // Is element visible in current viewport?
+element.is_occluded; // Is element covered by other elements?
+element.z_index; // CSS stacking order
 ```
 
 </details>
@@ -659,15 +711,15 @@ element.z_index         // CSS stacking order
 
 ### Basic Operators
 
-| Operator | Description | Example |
-|----------|-------------|---------|
-| `=` | Exact match | `role=button` |
-| `!=` | Exclusion | `role!=link` |
-| `~` | Substring (case-insensitive) | `text~"sign in"` |
-| `^=` | Prefix match | `text^="Add"` |
-| `$=` | Suffix match | `text$="Cart"` |
-| `>`, `>=` | Greater than | `importance>500` |
-| `<`, `<=` | Less than | `bbox.y<600` |
+| Operator  | Description                  | Example          |
+| --------- | ---------------------------- | ---------------- |
+| `=`       | Exact match                  | `role=button`    |
+| `!=`      | Exclusion                    | `role!=link`     |
+| `~`       | Substring (case-insensitive) | `text~"sign in"` |
+| `^=`      | Prefix match                 | `text^="Add"`    |
+| `$=`      | Suffix match                 | `text$="Cart"`   |
+| `>`, `>=` | Greater than                 | `importance>500` |
+| `<`, `<=` | Less than                    | `bbox.y<600`     |
 
 ### Supported Fields
 
@@ -712,7 +764,7 @@ const browser = new SentienceBrowser(undefined, undefined, false);
 const browser = new SentienceBrowser(undefined, undefined, true);
 
 // Auto-detect based on environment (default)
-const browser = new SentienceBrowser();  // headless=true if CI=true, else false
+const browser = new SentienceBrowser(); // headless=true if CI=true, else false
 ```
 
 </details>
@@ -723,6 +775,7 @@ const browser = new SentienceBrowser();  // headless=true if CI=true, else false
 For users running from datacenters (AWS, DigitalOcean, etc.), you can configure a residential proxy to prevent IP-based detection by Cloudflare, Akamai, and other anti-bot services.
 
 **Supported Formats:**
+
 - HTTP: `http://username:password@host:port`
 - HTTPS: `https://username:password@host:port`
 - SOCKS5: `socks5://username:password@host:port`
@@ -787,9 +840,9 @@ await saveStorageState(browser.getContext(), 'auth.json');
 const browser2 = new SentienceBrowser(
   undefined, // apiKey
   undefined, // apiUrl
-  false,     // headless
-  undefined,  // proxy
-  undefined,  // userDataDir
+  false, // headless
+  undefined, // proxy
+  undefined, // userDataDir
   'auth.json' // storageState - inject saved session
 );
 await browser2.start();
@@ -797,12 +850,12 @@ await browser2.start();
 
 // Workflow 2: Persistent sessions (cookies persist across runs)
 const browser3 = new SentienceBrowser(
-  undefined,      // apiKey
-  undefined,      // apiUrl
-  false,          // headless
-  undefined,      // proxy
+  undefined, // apiKey
+  undefined, // apiUrl
+  false, // headless
+  undefined, // proxy
   './chrome_profile', // userDataDir - persist cookies
-  undefined       // storageState
+  undefined // storageState
 );
 await browser3.start();
 // First run: Log in
@@ -810,6 +863,7 @@ await browser3.start();
 ```
 
 **Benefits:**
+
 - Bypass login screens and CAPTCHAs with valid sessions
 - Save 5-10 agent steps and hundreds of tokens per run
 - Maintain stateful sessions for accessing authenticated pages
@@ -827,13 +881,15 @@ See `examples/auth-injection-agent.ts` for complete examples.
 <summary>Click to expand best practices</summary>
 
 ### 1. Wait for Dynamic Content
+
 ```typescript
 await browser.goto('https://example.com');
 await browser.getPage().waitForLoadState('networkidle');
-await new Promise(resolve => setTimeout(resolve, 1000));  // Extra buffer
+await new Promise(resolve => setTimeout(resolve, 1000)); // Extra buffer
 ```
 
 ### 2. Use Multiple Strategies for Finding Elements
+
 ```typescript
 // Try exact match first
 let btn = find(snap, 'role=button text="Add to Cart"');
@@ -845,6 +901,7 @@ if (!btn) {
 ```
 
 ### 3. Check Element Visibility Before Clicking
+
 ```typescript
 if (element.in_viewport && !element.is_occluded) {
   await click(browser, element.id);
@@ -852,6 +909,7 @@ if (element.in_viewport && !element.is_occluded) {
 ```
 
 ### 4. Handle Navigation
+
 ```typescript
 const result = await click(browser, linkId);
 if (result.url_changed) {
@@ -860,6 +918,7 @@ if (result.url_changed) {
 ```
 
 ### 5. Use Screenshots Sparingly
+
 ```typescript
 // Fast - no screenshot (only element data)
 const snap = await snapshot(browser);
@@ -869,6 +928,7 @@ const snap = await snapshot(browser, { screenshot: true });
 ```
 
 ### 6. Always Close Browser
+
 ```typescript
 const browser = new SentienceBrowser();
 
@@ -876,7 +936,7 @@ try {
   await browser.start();
   // ... your automation code
 } finally {
-  await browser.close();  // Always clean up
+  await browser.close(); // Always clean up
 }
 ```
 
@@ -890,14 +950,18 @@ try {
 <summary>Click to expand common issues and solutions</summary>
 
 ### "Extension failed to load"
+
 **Solution:** Build the extension first:
+
 ```bash
 cd sentience-chrome
 ./build.sh
 ```
 
 ### "Cannot use import statement outside a module"
+
 **Solution:** Don't use `node` directly. Use `ts-node` or npm scripts:
+
 ```bash
 npx ts-node examples/hello.ts
 # or
@@ -905,13 +969,17 @@ npm run example:hello
 ```
 
 ### "Element not found"
+
 **Solutions:**
+
 - Ensure page is loaded: `await browser.getPage().waitForLoadState('networkidle')`
 - Use `waitFor()`: `await waitFor(browser, 'role=button', 10000)`
 - Debug elements: `console.log(snap.elements.map(el => el.text))`
 
 ### Button not clickable
+
 **Solutions:**
+
 - Check visibility: `element.in_viewport && !element.is_occluded`
 - Scroll to element: ``await browser.getPage().evaluate(`window.sentience_registry[${element.id}].scrollIntoView()`)``
 
@@ -948,6 +1016,7 @@ npm run example:hello
 **⚠️ Important**: You cannot use `node` directly to run TypeScript files. Use one of these methods:
 
 ### Option 1: Using npm scripts (recommended)
+
 ```bash
 npm run example:hello
 npm run example:basic
@@ -956,6 +1025,7 @@ npm run example:wait
 ```
 
 ### Option 2: Using ts-node directly
+
 ```bash
 npx ts-node examples/hello.ts
 # or if ts-node is installed globally:
@@ -963,6 +1033,7 @@ ts-node examples/hello.ts
 ```
 
 ### Option 3: Compile then run
+
 ```bash
 npm run build
 # Then use compiled JavaScript from dist/
@@ -1001,7 +1072,7 @@ npm test -- snapshot.test.ts
 
 This project is licensed under either of:
 
-* Apache License, Version 2.0, ([LICENSE-APACHE](./LICENSE-APACHE))
-* MIT license ([LICENSE-MIT](./LICENSE-MIT))
+- Apache License, Version 2.0, ([LICENSE-APACHE](./LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](./LICENSE-MIT))
 
 at your option.
