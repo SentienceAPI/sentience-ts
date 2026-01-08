@@ -96,12 +96,27 @@ export interface ElementFound {
 }
 
 /**
+ * Assertion result for verification events
+ */
+export interface AssertionResult {
+  label: string;
+  passed: boolean;
+  required?: boolean;
+  reason?: string;
+  details?: Record<string, unknown>;
+}
+
+/**
  * Verify signals for step_end events
  */
 export interface VerifySignals {
   url_changed?: boolean;
   error?: string;
   elements_found?: ElementFound[];
+  // Assertion results from agent verification loop
+  assertions?: AssertionResult[];
+  task_done?: boolean;
+  task_done_label?: string;
 }
 
 /**
@@ -163,6 +178,14 @@ export interface TraceEventData {
   exec?: ExecutionData;
   post?: SnapshotInfo;
   verify?: VerifyData;
+
+  // Verification event fields (for assertion loop)
+  kind?: 'assert' | 'task_done';
+  label?: string;
+  passed?: boolean;
+  required?: boolean;
+  reason?: string;
+  details?: Record<string, unknown>;
 }
 
 /**
