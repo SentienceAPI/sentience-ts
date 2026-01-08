@@ -5,6 +5,7 @@
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import * as path from 'path';
+import { canonicalizeElement } from '../canonicalization';
 import {
   TraceIndex,
   StepIndex,
@@ -17,38 +18,6 @@ import {
 } from './index-schema';
 
 /**
- * Normalize text for digest: trim, collapse whitespace, lowercase, cap length
- */
-function normalizeText(text: string | undefined, maxLen: number = 80): string {
-  if (!text) return '';
-
-  // Trim and collapse whitespace
-  let normalized = text.split(/\s+/).join(' ').trim();
-
-  // Lowercase
-  normalized = normalized.toLowerCase();
-
-  // Cap length
-  if (normalized.length > maxLen) {
-    normalized = normalized.substring(0, maxLen);
-  }
-
-  return normalized;
-}
-
-/**
- * Round bbox coordinates to reduce noise (default: 2px precision)
- */
-function roundBBox(bbox: any, precision: number = 2): any {
-  return {
-    x: Math.round((bbox.x || 0) / precision) * precision,
-    y: Math.round((bbox.y || 0) / precision) * precision,
-    width: Math.round((bbox.width || 0) / precision) * precision,
-    height: Math.round((bbox.height || 0) / precision) * precision,
-  };
-}
-
-/**
  * Compute stable digest of snapshot for diffing
  */
 function computeSnapshotDigest(snapshotData: any): string {
@@ -56,28 +25,8 @@ function computeSnapshotDigest(snapshotData: any): string {
   const viewport = snapshotData.viewport || {};
   const elements = snapshotData.elements || [];
 
-  // Canonicalize elements
-  const canonicalElements = elements.map((elem: any) => {
-    // Extract is_primary and is_clickable from visual_cues if present
-    const visualCues = elem.visual_cues || {};
-    const isPrimary =
-      typeof visualCues === 'object' && visualCues !== null
-        ? visualCues.is_primary || false
-        : elem.is_primary || false;
-    const isClickable =
-      typeof visualCues === 'object' && visualCues !== null
-        ? visualCues.is_clickable || false
-        : elem.is_clickable || false;
-
-    return {
-      id: elem.id,
-      role: elem.role || '',
-      text_norm: normalizeText(elem.text),
-      bbox: roundBBox(elem.bbox || { x: 0, y: 0, width: 0, height: 0 }),
-      is_primary: isPrimary,
-      is_clickable: isClickable,
-    };
-  });
+  // Canonicalize elements using shared helper
+  const canonicalElements = elements.map((elem: any) => canonicalizeElement(elem));
 
   // Sort by element id for determinism
   canonicalElements.sort((a: { id?: number }, b: { id?: number }) => (a.id || 0) - (b.id || 0));
