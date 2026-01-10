@@ -49,6 +49,11 @@ export interface Element {
 
   // Hyperlink URL (for link elements)
   href?: string;
+
+  // Phase 3.2: Pre-computed dominant group membership (uses fuzzy matching)
+  // This field is computed by the gateway so downstream consumers don't need to
+  // implement fuzzy matching logic themselves.
+  in_dominant_group?: boolean;
 }
 
 export interface Snapshot {
