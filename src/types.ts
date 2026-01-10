@@ -58,6 +58,8 @@ export interface Snapshot {
   screenshot_format?: 'png' | 'jpeg';
   error?: string;
   requires_license?: boolean;
+  // Phase 2: Dominant group key for ordinal selection
+  dominant_group_key?: string; // The most common group_key (main content group)
 }
 
 /**
