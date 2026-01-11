@@ -323,6 +323,12 @@
                 if (!el.getBoundingClientRect) return;
                 const rect = el.getBoundingClientRect();
                 if (rect.width < 5 || rect.height < 5) return;
+                if ("span" === el.tagName.toLowerCase()) {
+                    if (el.closest("a")) return;
+                    const childLink = el.querySelector("a[href]");
+                    if (childLink && childLink.href) return;
+                    options.debug && el.className && el.className.includes("titleline");
+                }
                 window.sentience_registry[idx] = el;
                 const semanticText = function(el, options = {}) {
                     if (!el) return {
@@ -439,7 +445,7 @@
                         inferred_label: semanticText?.source && ![ "explicit_aria_label", "input_value", "img_alt", "inner_text" ].includes(semanticText.source) ? toSafeString(semanticText.text) : null,
                         label_source: semanticText?.source || null,
                         inferred_role: inferredRole ? toSafeString(inferredRole) : null,
-                        href: toSafeString(el.href || el.getAttribute("href") || null),
+                        href: toSafeString(el.href || el.getAttribute("href") || el.closest && el.closest("a")?.href || null),
                         class: toSafeString(getClassName(el)),
                         value: void 0 !== el.value ? toSafeString(el.value) : toSafeString(el.getAttribute("value")),
                         checked: void 0 !== el.checked ? String(el.checked) : null
