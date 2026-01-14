@@ -17,7 +17,11 @@ async function main() {
     await browser.start();
 
     // Navigate to a page with grid layouts (e.g., product listings, article feeds)
-    await browser.getPage().goto('https://example.com/products', {
+    const page = browser.getPage();
+    if (!page) {
+      throw new Error('Failed to get page after browser.start()');
+    }
+    await page.goto('https://example.com', {
       waitUntil: 'domcontentloaded',
     });
     await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait for page to fully load
