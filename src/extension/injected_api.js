@@ -855,6 +855,14 @@
             timestamp: Date.now()
         }, "*");
     }
+    function showGrid(grids, targetGridId = null) {
+        grids && Array.isArray(grids) && window.postMessage({
+            type: "SENTIENCE_SHOW_GRID_OVERLAY",
+            grids: grids,
+            targetGridId: targetGridId,
+            timestamp: Date.now()
+        }, "*");
+    }
     function clearOverlay() {
         window.postMessage({
             type: "SENTIENCE_CLEAR_OVERLAY"
@@ -875,6 +883,7 @@
             click: click,
             startRecording: startRecording,
             showOverlay: showOverlay,
+            showGrid: showGrid,
             clearOverlay: clearOverlay
         }, window.sentience_iframe_handler_setup || (window.addEventListener("message", async event => {
             if ("SENTIENCE_IFRAME_SNAPSHOT_REQUEST" === event.data?.type) {
