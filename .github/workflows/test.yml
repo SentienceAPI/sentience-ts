@@ -48,148 +48,21 @@ jobs:
       run: |
         npm run build
         
-    - name: Build and sync extension
-      if: runner.os != 'Windows'
-      shell: bash
-      run: |
-        # Check if extension is already synced (from sync-extension workflow)
-        if [ -d "src/extension" ] && [ -f "src/extension/manifest.json" ]; then
-          echo "✅ Extension already synced in src/extension/"
-          echo "📦 Extension files:"
-          find src/extension -type f | head -10
-        elif [ -d "../sentience-chrome" ]; then
-          echo "Building sentience-chrome extension..."
-          cd ../sentience-chrome
-          ./build.sh || echo "Extension build skipped (may not be available in CI)"
-          
-          if [ -f "dist/manifest.json" ]; then
-            echo "Verifying extension build..."
-            
-            echo "Copying extension files to sdk-ts/src/extension..."
-            cd ../sdk-ts
-            mkdir -p src/extension/dist
-            mkdir -p src/extension/pkg
-            
-            # Copy manifest.json to root (as required)
-            cp ../sentience-chrome/dist/manifest.json src/extension/
-            # Copy JS files to dist/ subdirectory (manifest.json references dist/background.js, etc.)
-            cp ../sentience-chrome/dist/*.js src/extension/dist/ 2>/dev/null || true
-            # Copy WASM files to pkg/
-            cp -r ../sentience-chrome/pkg/* src/extension/pkg/ 2>/dev/null || true
-            
-            # Verify extension files are present
-            # Check which structure we have (flat vs dist/)
-            echo "Verifying extension files..."
-            if [ -f "src/extension/background.js" ]; then
-              echo "📋 Detected flat structure"
-              REQUIRED_FILES=(
-                "src/extension/manifest.json"
-                "src/extension/background.js"
-                "src/extension/content.js"
-                "src/extension/injected_api.js"
-                "src/extension/pkg/sentience_core.js"
-                "src/extension/pkg/sentience_core_bg.wasm"
-              )
-            else
-              echo "📋 Detected dist/ structure"
-              REQUIRED_FILES=(
-                "src/extension/manifest.json"
-                "src/extension/dist/background.js"
-                "src/extension/dist/content.js"
-                "src/extension/dist/injected_api.js"
-                "src/extension/pkg/sentience_core.js"
-                "src/extension/pkg/sentience_core_bg.wasm"
-              )
-            fi
-
-            MISSING_FILES=()
-            for file in "${REQUIRED_FILES[@]}"; do
-              if [ ! -f "$file" ]; then
-                MISSING_FILES+=("$file")
-              fi
-            done
-
-            if [ ${#MISSING_FILES[@]} -ne 0 ]; then
-              echo "❌ Error: Missing required extension files:"
-              printf '  - %s\n' "${MISSING_FILES[@]}"
-              exit 1
-            fi
-            
-            echo "✅ Extension built and synced successfully"
-            echo "📦 Extension files:"
-            find src/extension -type f | head -10
-          else
-            echo "⚠️  Warning: Extension build failed or dist/manifest.json not found"
-            echo "Extension directory not found, skipping build"
-          fi
-        else
-          echo "⚠️  Warning: Extension directory not found at ../sentience-chrome"
-          echo "Extension may be synced via sync-extension workflow in src/extension/"
-          echo "Tests requiring extension may fail if extension is not available."
-        fi
-        
     - name: Copy extension to dist for tests
       if: runner.os != 'Windows'
       shell: bash
       run: |
-        # After build, copy extension from src/extension to dist/extension
-        # This is needed because tests run from dist/ and browser.ts looks for extension relative to __dirname
+        # Extension should be synced to src/extension/ by sync-extension workflow
+        # Copy it to dist/extension/ so tests can find it (browser.ts looks relative to __dirname)
         if [ -d "src/extension" ] && [ -f "src/extension/manifest.json" ]; then
-          echo "📦 Copying extension from src/extension to dist/extension..."
-          # Remove destination if it exists to ensure clean copy
-          rm -rf dist/extension
-          # Copy entire extension directory preserving structure
+          echo "Copying extension from src/extension to dist/extension..."
           cp -r src/extension dist/
-
-          # Check manifest.json to determine expected structure
-          # Release manifests use flat structure (background.js at root)
-          # Dev manifests use dist/ structure (dist/background.js)
-          if grep -q '"service_worker": "background.js"' dist/extension/manifest.json 2>/dev/null; then
-            echo "📋 Detected flat structure (release manifest)"
-            REQUIRED_FILES=(
-              "dist/extension/manifest.json"
-              "dist/extension/background.js"
-              "dist/extension/content.js"
-              "dist/extension/injected_api.js"
-              "dist/extension/pkg/sentience_core.js"
-              "dist/extension/pkg/sentience_core_bg.wasm"
-            )
-          else
-            echo "📋 Detected dist/ structure (dev manifest)"
-            REQUIRED_FILES=(
-              "dist/extension/manifest.json"
-              "dist/extension/dist/background.js"
-              "dist/extension/dist/content.js"
-              "dist/extension/dist/injected_api.js"
-              "dist/extension/pkg/sentience_core.js"
-              "dist/extension/pkg/sentience_core_bg.wasm"
-            )
-          fi
-
-          MISSING_FILES=()
-          for file in "${REQUIRED_FILES[@]}"; do
-            if [ ! -f "$file" ]; then
-              MISSING_FILES+=("$file")
-            fi
-          done
-
-          if [ ${#MISSING_FILES[@]} -ne 0 ]; then
-            echo "❌ Error: Missing required extension files after copy:"
-            printf '  - %s\n' "${MISSING_FILES[@]}"
-            echo ""
-            echo "Files in dist/extension:"
-            find dist/extension -type f | sort
-            exit 1
-          fi
-
-          echo "✅ Extension copied to dist/extension/"
-          echo "📦 Extension structure:"
-          find dist/extension -type f | sort | head -15
+          echo "Extension files in dist/extension:"
+          ls -la dist/extension/
         else
-          echo "⚠️  Warning: src/extension not found, cannot copy to dist/extension"
-          echo "Tests requiring extension may fail."
+          echo "Warning: src/extension not found, tests may fail"
         fi
-        
+
     - name: Run tests
       run: |
         npm test
