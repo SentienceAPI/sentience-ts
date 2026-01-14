@@ -162,15 +162,14 @@ async function snapshotViaExtension(
       const targetGridId = options.grid_id ?? null;
       await BrowserEvaluator.evaluate(
         page,
-        (grids: any[], targetGridId: number | null) => {
+        (args: any) => {
           if ((window as any).sentience && (window as any).sentience.showGrid) {
-            (window as any).sentience.showGrid(grids, targetGridId);
+            (window as any).sentience.showGrid(args.grids, args.targetGridId);
           } else {
             console.warn('[SDK] showGrid not available in extension');
           }
         },
-        grids,
-        targetGridId
+        { grids, targetGridId }
       );
     }
   }
@@ -317,15 +316,14 @@ async function snapshotViaApi(
         const targetGridId = options.grid_id ?? null;
         await BrowserEvaluator.evaluate(
           page,
-          (grids: any[], targetGridId: number | null) => {
+          (args: any) => {
             if ((window as any).sentience && (window as any).sentience.showGrid) {
-              (window as any).sentience.showGrid(grids, targetGridId);
+              (window as any).sentience.showGrid(args.grids, args.targetGridId);
             } else {
               console.warn('[SDK] showGrid not available in extension');
             }
           },
-          grids,
-          targetGridId
+          { grids, targetGridId }
         );
       }
     }
