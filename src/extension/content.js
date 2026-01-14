@@ -114,6 +114,41 @@
 
           case "SENTIENCE_CLEAR_OVERLAY":
             removeOverlay();
+            break;
+
+          case "SENTIENCE_SHOW_GRID_OVERLAY":
+            !function(data) {
+                const {grids: grids, targetGridId: targetGridId} = data;
+                if (!grids || !Array.isArray(grids)) return;
+                removeOverlay();
+                const host = document.createElement("div");
+                host.id = OVERLAY_HOST_ID, host.style.cssText = "\n        position: fixed !important;\n        top: 0 !important;\n        left: 0 !important;\n        width: 100vw !important;\n        height: 100vh !important;\n        pointer-events: none !important;\n        z-index: 2147483647 !important;\n        margin: 0 !important;\n        padding: 0 !important;\n    ", 
+                document.body.appendChild(host);
+                const shadow = host.attachShadow({
+                    mode: "closed"
+                });
+                grids.forEach(grid => {
+                    const bbox = grid.bbox;
+                    if (!bbox) return;
+                    const isTarget = grid.grid_id === targetGridId, isDominant = !0 === grid.is_dominant;
+                    let color = "#9B59B6";
+                    isTarget ? color = "#FF0000" : isDominant && (color = "#FF8C00");
+                    const borderStyle = isTarget ? "solid" : "dashed", borderWidth = isTarget ? 3 : isDominant ? 2.5 : 2, opacity = isTarget ? 1 : isDominant ? .9 : .8, fillOpacity = .1 * opacity, hexOpacity = Math.round(255 * fillOpacity).toString(16).padStart(2, "0"), box = document.createElement("div");
+                    box.style.cssText = `\n            position: absolute;\n            left: ${bbox.x}px;\n            top: ${bbox.y}px;\n            width: ${bbox.width}px;\n            height: ${bbox.height}px;\n            border: ${borderWidth}px ${borderStyle} ${color};\n            background-color: ${color}${hexOpacity};\n            box-sizing: border-box;\n            opacity: ${opacity};\n            pointer-events: none;\n        `;
+                    let labelText = grid.label ? `Grid ${grid.grid_id}: ${grid.label}` : `Grid ${grid.grid_id}`;
+                    grid.is_dominant && (labelText = `⭐ ${labelText} (dominant)`);
+                    const badge = document.createElement("span");
+                    if (badge.textContent = labelText, badge.style.cssText = `\n                position: absolute;\n                top: -18px;\n                left: 0;\n                background: ${color};\n                color: white;\n                font-size: 11px;\n                font-weight: bold;\n                padding: 2px 6px;\n                font-family: Arial, sans-serif;\n                border-radius: 3px;\n                opacity: 0.95;\n                white-space: nowrap;\n                pointer-events: none;\n            `, 
+                    box.appendChild(badge), isTarget) {
+                        const targetIndicator = document.createElement("span");
+                        targetIndicator.textContent = "🎯", targetIndicator.style.cssText = "\n                position: absolute;\n                top: -18px;\n                right: 0;\n                font-size: 16px;\n                pointer-events: none;\n            ", 
+                        box.appendChild(targetIndicator);
+                    }
+                    shadow.appendChild(box);
+                }), overlayTimeout = setTimeout(() => {
+                    removeOverlay();
+                }, 5e3);
+            }(event.data);
         }
     });
     const OVERLAY_HOST_ID = "sentience-overlay-host";
