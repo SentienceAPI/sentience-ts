@@ -12,8 +12,9 @@ import {
   snapshot,
   find,
   BBox,
+  Element,
 } from '../src';
-import { createTestBrowser, getPageOrThrow, snapshotOrSkip } from './test-utils';
+import { createTestBrowser, getPageOrThrow } from './test-utils';
 
 describe('Actions', () => {
   describe('click', () => {
@@ -25,11 +26,7 @@ describe('Actions', () => {
         await page.goto('https://example.com');
         await page.waitForLoadState('networkidle', { timeout: 10000 });
 
-        const snap = await snapshotOrSkip(browser);
-        if (!snap) {
-          console.log('Skipping test: Extension not available');
-          return;
-        }
+        const snap = await snapshot(browser);
 
         const link = find(snap, 'role=link');
 
@@ -52,11 +49,7 @@ describe('Actions', () => {
         await page.goto('https://example.com');
         await page.waitForLoadState('networkidle', { timeout: 10000 });
 
-        const snap = await snapshotOrSkip(browser);
-        if (!snap) {
-          console.log('Skipping test: Extension not available');
-          return;
-        }
+        const snap = await snapshot(browser);
         const link = find(snap, 'role=link');
 
         if (link) {
@@ -80,11 +73,7 @@ describe('Actions', () => {
         await page.goto('https://example.com');
         await page.waitForLoadState('networkidle', { timeout: 10000 });
 
-        const snap = await snapshotOrSkip(browser);
-        if (!snap) {
-          console.log('Skipping test: Extension not available');
-          return;
-        }
+        const snap = await snapshot(browser);
         const link = find(snap, 'role=link');
 
         if (link) {
@@ -110,11 +99,7 @@ describe('Actions', () => {
         await page.goto('https://example.com');
         await page.waitForLoadState('networkidle', { timeout: 10000 });
 
-        const snap = await snapshotOrSkip(browser);
-        if (!snap) {
-          console.log('Skipping test: Extension not available');
-          return;
-        }
+        const snap = await snapshot(browser);
         const textbox = find(snap, 'role=textbox');
 
         if (textbox) {
@@ -155,13 +140,9 @@ describe('Actions', () => {
         await page.goto('https://example.com');
         await page.waitForLoadState('networkidle', { timeout: 10000 });
 
-        const snap = await snapshotOrSkip(browser);
-        if (!snap) {
-          console.log('Skipping test: Extension not available');
-          return;
-        }
+        const snap = await snapshot(browser);
         // Find an element to scroll to
-        const elements = snap.elements.filter(el => el.role === 'link');
+        const elements = snap.elements.filter((el: Element) => el.role === 'link');
 
         if (elements.length > 0) {
           // Get the last element which might be out of viewport
@@ -185,7 +166,7 @@ describe('Actions', () => {
         await page.waitForLoadState('networkidle', { timeout: 10000 });
 
         const snap = await snapshot(browser);
-        const elements = snap.elements.filter(el => el.role === 'link');
+        const elements = snap.elements.filter((el: Element) => el.role === 'link');
 
         if (elements.length > 0) {
           const element = elements[0];
@@ -207,7 +188,7 @@ describe('Actions', () => {
         await page.waitForLoadState('networkidle', { timeout: 10000 });
 
         const snap = await snapshot(browser);
-        const elements = snap.elements.filter(el => el.role === 'link');
+        const elements = snap.elements.filter((el: Element) => el.role === 'link');
 
         if (elements.length > 0) {
           const element = elements[0];
@@ -249,19 +230,7 @@ describe('Actions', () => {
         await page.goto('https://example.com');
         await page.waitForLoadState('networkidle', { timeout: 10000 });
 
-        let snap;
-        try {
-          snap = await snapshot(browser);
-        } catch (e: any) {
-          if (
-            e.extensionNotAvailable ||
-            (e.message && e.message.includes('Sentience extension failed to inject'))
-          ) {
-            console.log('Skipping test: Extension not available');
-            return;
-          }
-          throw e;
-        }
+        const snap = await snapshot(browser);
         const textbox = find(snap, 'role=textbox');
 
         if (textbox) {
@@ -305,11 +274,7 @@ describe('Actions', () => {
         await page.waitForLoadState('networkidle', { timeout: 10000 });
 
         // Get an element and click its bbox
-        const snap = await snapshotOrSkip(browser);
-        if (!snap) {
-          console.log('Skipping test: Extension not available');
-          return;
-        }
+        const snap = await snapshot(browser);
         const link = find(snap, 'role=link');
 
         if (link) {
@@ -376,11 +341,8 @@ describe('Actions', () => {
         await page.goto('https://example.com');
         await page.waitForLoadState('networkidle', { timeout: 10000 });
 
-        // Skip if extension is not available (common in CI)
-        if (!(await isExtensionAvailable(browser))) {
-          console.log('Skipping test: Extension not available');
-          return;
-        }
+        // Check if extension is available by trying to take a snapshot
+        const snap = await snapshot(browser);
 
         const result = await clickRect(browser, { x: 100, y: 100, w: 50, h: 30 }, true, 2.0, true);
         expect(result.success).toBe(true);

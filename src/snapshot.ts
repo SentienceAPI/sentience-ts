@@ -88,14 +88,10 @@ async function snapshotViaExtension(
       5000
     );
   } catch (e) {
-    // Create a specific error that tests can catch and skip
-    const error = new Error(
+    throw new Error(
       `Sentience extension failed to inject window.sentience API. ` +
         `Is the extension loaded? ${e instanceof Error ? e.message : String(e)}`
     );
-    // Add a property that tests can check for
-    (error as any).extensionNotAvailable = true;
-    throw error;
   }
 
   // Build options object

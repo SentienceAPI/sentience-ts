@@ -481,6 +481,32 @@ export class SentienceBrowser implements IBrowser {
 
     // Wait for extension background pages to spin up
     await new Promise(r => setTimeout(r, 500));
+
+    // Navigate to a blank page to trigger extension injection
+    await this.page.goto('about:blank');
+
+    // Verify extension is loaded and ready
+    const extensionReady = await this.waitForExtension(this.page, 10000);
+    if (!extensionReady) {
+      const diagnostics = await this.page.evaluate(() => {
+        const win = window as any;
+        return {
+          sentience_defined: typeof win.sentience !== 'undefined',
+          sentience_snapshot: typeof win.sentience?.snapshot === 'function',
+          wasm_module:
+            win.sentience?._wasmModule !== null && win.sentience?._wasmModule !== undefined,
+          extension_id: document.documentElement.dataset.sentienceExtensionId || 'not set',
+          url: window.location.href,
+        };
+      });
+
+      throw new Error(
+        `Sentience extension failed to load after browser startup. ` +
+          `Extension path: ${this.extensionPath}\n` +
+          `Diagnostics: ${JSON.stringify(diagnostics, null, 2)}\n` +
+          `Make sure the extension is built and available at the expected location.`
+      );
+    }
   }
 
   async goto(url: string): Promise<void> {
