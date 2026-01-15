@@ -63,4 +63,63 @@ describe('AgentRuntime.check().eventually()', () => {
     const verificationEvents = sink.events.filter(e => e.type === 'verification');
     expect(verificationEvents.length).toBeGreaterThanOrEqual(3);
   });
+
+  it('can gate on minConfidence and stop with snapshot_exhausted', async () => {
+    const sink = new MockSink();
+    const tracer = new Tracer('test-run', sink);
+    const page = new MockPage('https://example.com') as any;
+
+    const snapshots: Snapshot[] = [
+      {
+        status: 'success',
+        url: 'https://example.com',
+        elements: [],
+        timestamp: 't1',
+        diagnostics: {
+          confidence: 0.1,
+          reasons: ['dom_unstable'],
+          metrics: { quiet_ms: 50 },
+        } as any,
+      },
+      {
+        status: 'success',
+        url: 'https://example.com',
+        elements: [],
+        timestamp: 't2',
+        diagnostics: {
+          confidence: 0.1,
+          reasons: ['dom_unstable'],
+          metrics: { quiet_ms: 50 },
+        } as any,
+      },
+    ];
+
+    const browserLike = {
+      snapshot: async () => snapshots.shift() as Snapshot,
+    };
+
+    const runtime = new AgentRuntime(browserLike as any, page as any, tracer);
+    runtime.beginStep('Test');
+
+    const pred: Predicate = _ctx => ({
+      passed: true,
+      reason: 'would pass',
+      details: {},
+    });
+
+    const ok = await runtime.check(pred, 'min_confidence_gate').eventually({
+      timeoutMs: 2000,
+      pollMs: 0,
+      minConfidence: 0.7,
+      maxSnapshotAttempts: 2,
+    });
+
+    expect(ok).toBe(false);
+
+    const stepEnd = runtime.getAssertionsForStepEnd();
+    expect(stepEnd.assertions.length).toBe(1);
+    expect(stepEnd.assertions[0].label).toBe('min_confidence_gate');
+    expect(stepEnd.assertions[0].passed).toBe(false);
+    expect((stepEnd.assertions[0] as any).details.reason_code).toBe('snapshot_exhausted');
+  });
 });

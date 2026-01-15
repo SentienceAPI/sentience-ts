@@ -64,6 +64,10 @@ export interface EventuallyOptions {
   timeoutMs?: number;
   pollMs?: number;
   snapshotOptions?: Record<string, any>;
+  /** If set, `.eventually()` will treat snapshots below this confidence as failures and resnapshot. */
+  minConfidence?: number;
+  /** Max number of snapshot attempts to get above minConfidence before declaring exhaustion. */
+  maxSnapshotAttempts?: number;
 }
 
 export class AssertionHandle {
@@ -87,14 +91,96 @@ export class AssertionHandle {
     const timeoutMs = options.timeoutMs ?? 10_000;
     const pollMs = options.pollMs ?? 250;
     const snapshotOptions = options.snapshotOptions;
+    const minConfidence = options.minConfidence;
+    const maxSnapshotAttempts = options.maxSnapshotAttempts ?? 3;
 
     const deadline = Date.now() + timeoutMs;
     let attempt = 0;
+    let snapshotAttempt = 0;
     let lastOutcome: ReturnType<Predicate> | null = null;
 
     while (true) {
       attempt += 1;
       await this.runtime.snapshot(snapshotOptions);
+      snapshotAttempt += 1;
+
+      const diagnostics = this.runtime.lastSnapshot?.diagnostics;
+      const confidence = diagnostics?.confidence;
+      if (
+        typeof minConfidence === 'number' &&
+        typeof confidence === 'number' &&
+        Number.isFinite(confidence) &&
+        confidence < minConfidence
+      ) {
+        lastOutcome = {
+          passed: false,
+          reason: `Snapshot confidence ${confidence.toFixed(3)} < minConfidence ${minConfidence.toFixed(3)}`,
+          details: {
+            reason_code: 'snapshot_low_confidence',
+            confidence,
+            min_confidence: minConfidence,
+            snapshot_attempt: snapshotAttempt,
+            diagnostics,
+          },
+        };
+
+        (this.runtime as any)._recordOutcome(
+          lastOutcome,
+          this.label,
+          this.required,
+          { eventually: true, attempt, snapshot_attempt: snapshotAttempt, final: false },
+          false
+        );
+
+        if (snapshotAttempt >= maxSnapshotAttempts) {
+          const finalOutcome = {
+            passed: false,
+            reason: `Snapshot exhausted after ${snapshotAttempt} attempt(s) below minConfidence ${minConfidence.toFixed(3)}`,
+            details: {
+              reason_code: 'snapshot_exhausted',
+              confidence,
+              min_confidence: minConfidence,
+              snapshot_attempts: snapshotAttempt,
+              diagnostics,
+            },
+          };
+
+          (this.runtime as any)._recordOutcome(
+            finalOutcome,
+            this.label,
+            this.required,
+            {
+              eventually: true,
+              attempt,
+              snapshot_attempt: snapshotAttempt,
+              final: true,
+              exhausted: true,
+            },
+            true
+          );
+          return false;
+        }
+
+        if (Date.now() >= deadline) {
+          (this.runtime as any)._recordOutcome(
+            lastOutcome,
+            this.label,
+            this.required,
+            {
+              eventually: true,
+              attempt,
+              snapshot_attempt: snapshotAttempt,
+              final: true,
+              timeout: true,
+            },
+            true
+          );
+          return false;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, pollMs));
+        continue;
+      }
 
       lastOutcome = this.predicate((this.runtime as any).ctx());
 

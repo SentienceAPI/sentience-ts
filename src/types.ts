@@ -141,6 +141,22 @@ export interface Snapshot {
   requires_license?: boolean;
   // Phase 2: Dominant group key for ordinal selection
   dominant_group_key?: string; // The most common group_key (main content group)
+  // Phase 2: Runtime stability/debug info (confidence/reasons/metrics)
+  diagnostics?: SnapshotDiagnostics;
+}
+
+export interface SnapshotDiagnosticsMetrics {
+  ready_state?: string | null;
+  quiet_ms?: number | null;
+  node_count?: number | null;
+  interactive_count?: number | null;
+  raw_elements_count?: number | null;
+}
+
+export interface SnapshotDiagnostics {
+  confidence?: number | null;
+  reasons?: string[];
+  metrics?: SnapshotDiagnosticsMetrics;
 }
 
 /**
