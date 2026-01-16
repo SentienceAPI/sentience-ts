@@ -177,6 +177,8 @@ export interface ActionResult {
   outcome?: 'navigated' | 'dom_updated' | 'no_change' | 'error';
   url_changed?: boolean;
   snapshot_after?: Snapshot;
+  /** Optional: action metadata (e.g., human-like cursor movement path) */
+  cursor?: Record<string, any>;
   error?: {
     code: string;
     reason: string;

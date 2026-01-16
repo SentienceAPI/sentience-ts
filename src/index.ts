@@ -6,6 +6,7 @@ export { SentienceBrowser } from './browser';
 export { snapshot, SnapshotOptions } from './snapshot';
 export { query, find, parseSelector } from './query';
 export { click, typeText, press, scrollTo, clickRect, ClickRect } from './actions';
+export { CursorPolicy, CursorMode, CursorMovementMetadata, CursorPathPoint } from './cursor-policy';
 export { waitFor } from './wait';
 export { expect, Expectation } from './expect';
 export { Inspector, inspect } from './inspector';

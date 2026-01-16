@@ -85,6 +85,8 @@ export interface ExecutionData {
   text?: string;
   key?: string;
   error?: string;
+  /** Optional action metadata (e.g., human-like cursor movement path) */
+  cursor?: Record<string, any>;
 }
 
 /**
@@ -160,6 +162,8 @@ export interface TraceEventData {
   text?: string;
   key?: string;
   success?: boolean;
+  /** Optional action metadata (e.g., human-like cursor movement path) */
+  cursor?: Record<string, any>;
 
   // Error data
   error?: string;

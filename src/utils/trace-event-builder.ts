@@ -79,6 +79,10 @@ export class TraceEventBuilder {
       duration_ms: result.durationMs,
     };
 
+    if (result.cursor !== undefined) {
+      (execData as any).cursor = result.cursor;
+    }
+
     // Add optional exec fields
     if (result.elementId !== undefined) {
       execData.element_id = result.elementId;

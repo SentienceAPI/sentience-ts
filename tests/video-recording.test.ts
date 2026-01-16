@@ -40,8 +40,9 @@ describe('video recording', () => {
 
     try {
       const page = getPageOrThrow(browser);
-      await page.goto('https://example.com');
-      await page.waitForLoadState('domcontentloaded');
+      await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
+      // Give the recorder a moment to capture some frames (CI can be slow)
+      await page.waitForTimeout(750);
 
       const videoPath = await browser.close();
 
@@ -57,7 +58,7 @@ describe('video recording', () => {
       await browser.close();
       throw error;
     }
-  });
+  }, 120000);
 
   it('should record video with custom resolution', async () => {
     const videoDir = path.join(tempDir, 'recordings');

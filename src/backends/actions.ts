@@ -19,6 +19,34 @@
 
 import type { ActionResult, BBox } from '../types';
 import type { BrowserBackend, MouseButton } from './protocol';
+import type { CursorPolicy } from '../cursor-policy';
+import { buildHumanCursorPath } from '../cursor-policy';
+
+const cursorPosByBackend: WeakMap<object, { x: number; y: number }> = new WeakMap();
+
+async function humanMoveBackendIfEnabled(
+  backend: BrowserBackend,
+  target: { x: number; y: number },
+  cursorPolicy?: CursorPolicy
+): Promise<Record<string, any> | undefined> {
+  if (!cursorPolicy || cursorPolicy.mode !== 'human') return undefined;
+  const key = backend as unknown as object;
+  const prev = cursorPosByBackend.get(key);
+  const from = prev ? prev : { x: target.x, y: target.y };
+
+  const meta = buildHumanCursorPath([from.x, from.y], [target.x, target.y], cursorPolicy);
+  const pts = meta.path || [];
+  const durationMs = meta.duration_ms || 0;
+  const perStepMs = durationMs > 0 ? durationMs / Math.max(1, pts.length) : 0;
+  for (const p of pts) {
+    await backend.mouseMove(p.x, p.y);
+    if (perStepMs > 0) await sleep(perStepMs);
+  }
+  if (meta.pause_before_click_ms > 0) await sleep(meta.pause_before_click_ms);
+
+  cursorPosByBackend.set(key, { x: target.x, y: target.y });
+  return meta as any;
+}
 
 /**
  * Target type for coordinate resolution.
@@ -117,26 +145,34 @@ export async function click(
   target: ClickTarget,
   button: MouseButton = 'left',
   clickCount: number = 1,
-  moveFirst: boolean = true
+  moveFirst: boolean = true,
+  cursorPolicy?: CursorPolicy
 ): Promise<ActionResult> {
   const startTime = Date.now();
 
   const [x, y] = resolveCoordinates(target);
+  let cursorMeta: Record<string, any> | undefined;
 
   try {
     // Optional mouse move for hover effects
     if (moveFirst) {
-      await backend.mouseMove(x, y);
-      await sleep(20); // Brief pause for hover
+      cursorMeta = await humanMoveBackendIfEnabled(backend, { x, y }, cursorPolicy);
+      if (!cursorMeta) {
+        await backend.mouseMove(x, y);
+        await sleep(20); // Brief pause for hover
+      }
     }
 
     // Perform click
     await backend.mouseClick(x, y, button, clickCount);
 
-    return successResult(measureDuration(startTime));
+    return { ...successResult(measureDuration(startTime)), cursor: cursorMeta };
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
-    return errorResult(measureDuration(startTime), 'click_failed', reason);
+    return {
+      ...errorResult(measureDuration(startTime), 'click_failed', reason),
+      cursor: cursorMeta,
+    };
   }
 }
 

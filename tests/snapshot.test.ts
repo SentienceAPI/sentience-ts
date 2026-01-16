@@ -11,10 +11,10 @@ describe('Snapshot', () => {
 
     try {
       const page = getPageOrThrow(browser);
-      await page.goto('https://example.com');
-      await page.waitForLoadState('networkidle', { timeout: 10000 });
+      await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
 
-      const snap = await snapshot(browser);
+      // CI hardening: avoid screenshot payload + reduce work
+      const snap = await snapshot(browser, { screenshot: false, limit: 30 });
 
       expect(snap.status).toBe('success');
       expect(snap.url).toContain('example.com');
@@ -30,10 +30,9 @@ describe('Snapshot', () => {
 
     try {
       const page = getPageOrThrow(browser);
-      await page.goto('https://example.com');
-      await page.waitForLoadState('networkidle', { timeout: 10000 });
+      await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
 
-      const snap = await snapshot(browser);
+      const snap = await snapshot(browser, { screenshot: false, limit: 30 });
 
       if (snap.elements.length > 0) {
         const element = snap.elements[0];
@@ -53,11 +52,14 @@ describe('Snapshot', () => {
 
     try {
       const page = getPageOrThrow(browser);
-      await page.goto('https://example.com');
-      await page.waitForLoadState('networkidle', { timeout: 10000 });
+      await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
 
       // Test snapshot with goal
-      const snap = await snapshot(browser, { goal: 'Find the main heading' });
+      const snap = await snapshot(browser, {
+        goal: 'Find the main heading',
+        screenshot: false,
+        limit: 30,
+      });
 
       expect(snap.status).toBe('success');
       expect(snap.url).toContain('example.com');

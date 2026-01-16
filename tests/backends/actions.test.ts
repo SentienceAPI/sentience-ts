@@ -104,6 +104,26 @@ describe('backends/actions', () => {
       expect(result.error?.code).toBe('click_failed');
       expect(result.error?.reason).toContain('Click failed');
     });
+
+    it('should support human-like cursor movement policy (opt-in)', async () => {
+      const result = await click(mockBackend, [100, 200], 'left', 1, true, {
+        mode: 'human',
+        steps: 6,
+        durationMs: 0,
+        pauseBeforeClickMs: 0,
+        jitterPx: 0,
+        overshootPx: 0,
+        seed: 123,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.cursor).toBeDefined();
+      expect(result.cursor?.mode).toBe('human');
+      // Multiple moves (not just one)
+      expect(mockBackend.mouseMove.mock.calls.length).toBeGreaterThan(1);
+      // Final click should still happen at the target coordinates
+      expect(mockBackend.mouseClick).toHaveBeenCalledWith(100, 200, 'left', 1);
+    });
   });
 
   describe('typeText', () => {

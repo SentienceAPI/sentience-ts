@@ -31,6 +31,8 @@ export interface AgentActResult {
   goal: string;
   error?: string;
   message?: string;
+  /** Optional action metadata (e.g., human-like cursor movement path) */
+  cursor?: Record<string, any>;
 }
 
 /**
@@ -298,6 +300,7 @@ export class SentienceAgent {
               text: result.text,
               key: result.key,
               success: result.success,
+              cursor: result.cursor,
             },
             stepId
           );

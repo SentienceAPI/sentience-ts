@@ -68,6 +68,7 @@ export class ActionExecutor {
         success: result.success,
         action: 'click',
         elementId,
+        cursor: result.cursor,
         outcome: result.outcome || (result.success ? 'Clicked successfully' : 'Click failed'),
         durationMs: result.duration_ms,
         attempt: 0,

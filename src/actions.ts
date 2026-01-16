@@ -6,6 +6,41 @@ import { IBrowser } from './protocols/browser-protocol';
 import { ActionResult, Snapshot, BBox } from './types';
 import { snapshot } from './snapshot';
 import { BrowserEvaluator } from './utils/browser-evaluator';
+import { CursorPolicy, buildHumanCursorPath } from './cursor-policy';
+
+const cursorPosByPage: WeakMap<any, { x: number; y: number }> = new WeakMap();
+
+async function humanMoveIfEnabled(
+  page: any,
+  target: { x: number; y: number },
+  cursorPolicy?: CursorPolicy
+): Promise<Record<string, any> | undefined> {
+  if (!cursorPolicy || cursorPolicy.mode !== 'human') return undefined;
+
+  const prev = cursorPosByPage.get(page);
+  let from: { x: number; y: number };
+  if (prev) {
+    from = prev;
+  } else {
+    const vp = page.viewportSize ? page.viewportSize() : null;
+    from = vp ? { x: vp.width / 2, y: vp.height / 2 } : { x: 0, y: 0 };
+  }
+
+  const meta = buildHumanCursorPath([from.x, from.y], [target.x, target.y], cursorPolicy);
+  const pts = meta.path || [];
+  const durationMs = meta.duration_ms || 0;
+  const perStepMs = durationMs > 0 ? durationMs / Math.max(1, pts.length) : 0;
+  for (const p of pts) {
+    await page.mouse.move(p.x, p.y);
+    if (perStepMs > 0) await page.waitForTimeout(perStepMs);
+  }
+  if (meta.pause_before_click_ms > 0) {
+    await page.waitForTimeout(meta.pause_before_click_ms);
+  }
+
+  cursorPosByPage.set(page, { x: target.x, y: target.y });
+  return meta as any;
+}
 
 export interface ClickRect {
   x: number;
@@ -109,7 +144,8 @@ export async function click(
   browser: IBrowser,
   elementId: number,
   useMouse: boolean = true,
-  takeSnapshot: boolean = false
+  takeSnapshot: boolean = false,
+  cursorPolicy?: CursorPolicy
 ): Promise<ActionResult> {
   const page = browser.getPage();
   if (!page) {
@@ -119,6 +155,7 @@ export async function click(
   const urlBefore = page.url();
 
   let success: boolean;
+  let cursorMeta: Record<string, any> | undefined;
 
   if (useMouse) {
     // Hybrid approach: Get element bbox from snapshot, calculate center, use mouse.click()
@@ -130,9 +167,12 @@ export async function click(
         // Calculate center of element bbox
         const centerX = element.bbox.x + element.bbox.width / 2;
         const centerY = element.bbox.y + element.bbox.height / 2;
+        cursorMeta = await humanMoveIfEnabled(page, { x: centerX, y: centerY }, cursorPolicy);
         // Use Playwright's native mouse click for realistic simulation
         await page.mouse.click(centerX, centerY);
         success = true;
+        // Keep cursor position even when not in human mode (for future moves)
+        cursorPosByPage.set(page, { x: centerX, y: centerY });
       } else {
         // Fallback to JS click if element not found in snapshot
         success = await BrowserEvaluator.evaluateWithNavigationFallback(
@@ -208,6 +248,7 @@ export async function click(
     outcome,
     url_changed: urlChanged,
     snapshot_after: snapshotAfter,
+    cursor: cursorMeta,
     error: success
       ? undefined
       : { code: 'click_failed', reason: 'Element not found or not clickable' },
@@ -486,7 +527,8 @@ export async function clickRect(
   rect: ClickRect | BBox,
   highlight: boolean = true,
   highlightDuration: number = 2.0,
-  takeSnapshot: boolean = false
+  takeSnapshot: boolean = false,
+  cursorPolicy?: CursorPolicy
 ): Promise<ActionResult> {
   const page = browser.getPage();
   if (!page) {
@@ -529,6 +571,7 @@ export async function clickRect(
   // Calculate center of rectangle
   const centerX = x + w / 2;
   const centerY = y + h / 2;
+  let cursorMeta: Record<string, any> | undefined;
 
   // Show highlight before clicking (if enabled)
   if (highlight) {
@@ -541,8 +584,10 @@ export async function clickRect(
   let success: boolean;
   let errorMsg: string | undefined;
   try {
+    cursorMeta = await humanMoveIfEnabled(page, { x: centerX, y: centerY }, cursorPolicy);
     await page.mouse.click(centerX, centerY);
     success = true;
+    cursorPosByPage.set(page, { x: centerX, y: centerY });
   } catch (error) {
     success = false;
     errorMsg = error instanceof Error ? error.message : String(error);
@@ -577,6 +622,7 @@ export async function clickRect(
     outcome,
     url_changed: urlChanged,
     snapshot_after: snapshotAfter,
+    cursor: cursorMeta,
     error: success ? undefined : { code: 'click_failed', reason: errorMsg || 'Click failed' },
   };
 }
