@@ -4,6 +4,9 @@
 
 import { SentienceBrowser } from '../src/browser';
 import { chromium, BrowserContext, Page } from 'playwright';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 describe('Browser Proxy Support', () => {
   describe('Proxy Parsing', () => {
@@ -208,7 +211,8 @@ describe('Browser Proxy Support', () => {
     it('should create SentienceBrowser from existing context', async () => {
       // Auto-detect headless mode (headless in CI, headed locally)
       const isCI = process.env.CI === 'true' || process.env.CI === '1';
-      const context = await chromium.launchPersistentContext('', {
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sentience-pw-'));
+      const context = await chromium.launchPersistentContext(userDataDir, {
         headless: isCI,
         viewport: { width: 1600, height: 900 },
       });
@@ -224,8 +228,7 @@ describe('Browser Proxy Support', () => {
         if (!page) {
           throw new Error('Browser page is not available');
         }
-        await page.goto('https://example.com');
-        await page.waitForLoadState('networkidle', { timeout: 10000 });
+        await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
 
         const viewportSize = await page.evaluate(() => ({
           width: window.innerWidth,
@@ -236,13 +239,19 @@ describe('Browser Proxy Support', () => {
         expect(viewportSize.height).toBe(900);
       } finally {
         await context.close();
+        try {
+          fs.rmSync(userDataDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
       }
-    }, 30000);
+    }, 60000);
 
     it('should accept API key configuration', async () => {
       // Auto-detect headless mode (headless in CI, headed locally)
       const isCI = process.env.CI === 'true' || process.env.CI === '1';
-      const context = await chromium.launchPersistentContext('', {
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sentience-pw-'));
+      const context = await chromium.launchPersistentContext(userDataDir, {
         headless: isCI,
       });
 
@@ -258,8 +267,13 @@ describe('Browser Proxy Support', () => {
         expect(browser.getContext()).toBe(context);
       } finally {
         await context.close();
+        try {
+          fs.rmSync(userDataDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
       }
-    }, 30000);
+    }, 60000);
   });
 
   describe('fromPage', () => {

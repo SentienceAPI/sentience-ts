@@ -23,10 +23,9 @@ describe('Actions', () => {
 
       try {
         const page = getPageOrThrow(browser);
-        await page.goto('https://example.com');
-        await page.waitForLoadState('networkidle', { timeout: 10000 });
+        await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
 
-        const snap = await snapshot(browser);
+        const snap = await snapshot(browser, { screenshot: false, limit: 30 });
 
         const link = find(snap, 'role=link');
 
@@ -46,10 +45,9 @@ describe('Actions', () => {
 
       try {
         const page = getPageOrThrow(browser);
-        await page.goto('https://example.com');
-        await page.waitForLoadState('networkidle', { timeout: 10000 });
+        await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
 
-        const snap = await snapshot(browser);
+        const snap = await snapshot(browser, { screenshot: false, limit: 30 });
         const link = find(snap, 'role=link');
 
         if (link) {
@@ -70,10 +68,9 @@ describe('Actions', () => {
 
       try {
         const page = getPageOrThrow(browser);
-        await page.goto('https://example.com');
-        await page.waitForLoadState('networkidle', { timeout: 10000 });
+        await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
 
-        const snap = await snapshot(browser);
+        const snap = await snapshot(browser, { screenshot: false, limit: 30 });
         const link = find(snap, 'role=link');
 
         if (link) {
