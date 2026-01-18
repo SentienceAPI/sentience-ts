@@ -31,14 +31,30 @@ describe('FailureArtifactBuffer', () => {
     buf.recordStep('CLICK', 's1', 1, 'https://example.com');
     await buf.addFrame(Buffer.from('frame'), 'png');
 
-    const runDir = await buf.persist('assert_failed', 'failure');
+    const snapshot = { status: 'success', url: 'https://example.com', elements: [] };
+    const diagnostics = { confidence: 0.8, reasons: ['ok'], metrics: { quiet_ms: 10 } };
+    const runDir = await buf.persist('assert_failed', 'failure', snapshot, diagnostics, {
+      backend: 'MockBackend',
+      url: 'https://example.com',
+    });
     expect(runDir).toBeTruthy();
     const manifest = JSON.parse(
       fs.readFileSync(path.join(runDir as string, 'manifest.json'), 'utf-8')
     );
     const steps = JSON.parse(fs.readFileSync(path.join(runDir as string, 'steps.json'), 'utf-8'));
+    const snapJson = JSON.parse(
+      fs.readFileSync(path.join(runDir as string, 'snapshot.json'), 'utf-8')
+    );
+    const diagJson = JSON.parse(
+      fs.readFileSync(path.join(runDir as string, 'diagnostics.json'), 'utf-8')
+    );
     expect(manifest.run_id).toBe('run-2');
     expect(manifest.frame_count).toBe(1);
+    expect(manifest.snapshot).toBe('snapshot.json');
+    expect(manifest.diagnostics).toBe('diagnostics.json');
+    expect(manifest.metadata.backend).toBe('MockBackend');
     expect(steps.length).toBe(1);
+    expect(snapJson.url).toBe('https://example.com');
+    expect(diagJson.confidence).toBe(0.8);
   });
 });

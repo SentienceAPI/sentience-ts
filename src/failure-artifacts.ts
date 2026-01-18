@@ -18,6 +18,12 @@ interface FrameRecord {
   filePath: string;
 }
 
+async function writeJsonAtomic(filePath: string, data: any): Promise<void> {
+  const tmpPath = `${filePath}.tmp`;
+  await fs.promises.writeFile(tmpPath, JSON.stringify(data, null, 2));
+  await fs.promises.rename(tmpPath, filePath);
+}
+
 export class FailureArtifactBuffer {
   private runId: string;
   private options: Required<FailureArtifactsOptions>;
@@ -91,7 +97,13 @@ export class FailureArtifactBuffer {
     this.frames = keep;
   }
 
-  async persist(reason: string | null, status: 'failure' | 'success'): Promise<string | null> {
+  async persist(
+    reason: string | null,
+    status: 'failure' | 'success',
+    snapshot?: any,
+    diagnostics?: any,
+    metadata?: Record<string, any>
+  ): Promise<string | null> {
     if (this.persisted) {
       return null;
     }
@@ -107,10 +119,19 @@ export class FailureArtifactBuffer {
       await fs.promises.copyFile(frame.filePath, path.join(framesOut, frame.fileName));
     }
 
-    await fs.promises.writeFile(
-      path.join(runDir, 'steps.json'),
-      JSON.stringify(this.steps, null, 2)
-    );
+    await writeJsonAtomic(path.join(runDir, 'steps.json'), this.steps);
+
+    let snapshotWritten = false;
+    if (snapshot) {
+      await writeJsonAtomic(path.join(runDir, 'snapshot.json'), snapshot);
+      snapshotWritten = true;
+    }
+
+    let diagnosticsWritten = false;
+    if (diagnostics) {
+      await writeJsonAtomic(path.join(runDir, 'diagnostics.json'), diagnostics);
+      diagnosticsWritten = true;
+    }
 
     const manifest = {
       run_id: this.runId,
@@ -120,11 +141,11 @@ export class FailureArtifactBuffer {
       buffer_seconds: this.options.bufferSeconds,
       frame_count: this.frames.length,
       frames: this.frames.map(frame => ({ file: frame.fileName, ts: frame.ts })),
+      snapshot: snapshotWritten ? 'snapshot.json' : null,
+      diagnostics: diagnosticsWritten ? 'diagnostics.json' : null,
+      metadata: metadata ?? {},
     };
-    await fs.promises.writeFile(
-      path.join(runDir, 'manifest.json'),
-      JSON.stringify(manifest, null, 2)
-    );
+    await writeJsonAtomic(path.join(runDir, 'manifest.json'), manifest);
 
     this.persisted = true;
     return runDir;

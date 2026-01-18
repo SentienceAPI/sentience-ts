@@ -513,7 +513,13 @@ export class AgentRuntime {
     }
     if (success) {
       if (this.artifactBuffer.getOptions().persistMode === 'always') {
-        await this.artifactBuffer.persist('success', 'success');
+        await this.artifactBuffer.persist(
+          'success',
+          'success',
+          this.lastSnapshot ?? undefined,
+          this.lastSnapshot?.diagnostics,
+          this.artifactMetadata()
+        );
       }
       await this.artifactBuffer.cleanup();
     } else {
@@ -525,11 +531,25 @@ export class AgentRuntime {
     if (!this.artifactBuffer) {
       return;
     }
-    await this.artifactBuffer.persist(reason, 'failure');
+    await this.artifactBuffer.persist(
+      reason,
+      'failure',
+      this.lastSnapshot ?? undefined,
+      this.lastSnapshot?.diagnostics,
+      this.artifactMetadata()
+    );
     await this.artifactBuffer.cleanup();
     if (this.artifactBuffer.getOptions().persistMode === 'onFail') {
       this.disableFailureArtifacts();
     }
+  }
+
+  private artifactMetadata(): Record<string, any> {
+    const url = this.lastSnapshot?.url ?? this.page?.url?.();
+    return {
+      backend: 'playwright',
+      url,
+    };
   }
 
   /**
