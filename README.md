@@ -94,6 +94,20 @@ runtime.enableFailureArtifacts({ bufferSeconds: 15, captureOnAction: true, fps: 
 await runtime.recordAction('CLICK');
 ```
 
+### Redaction callback (Phase 3)
+
+Provide a user-defined callback to redact snapshots and decide whether to persist frames. The SDK does not implement image/video redaction.
+
+```typescript
+import { RedactionContext, RedactionResult } from 'sentienceapi';
+
+const redact = (_ctx: RedactionContext): RedactionResult => {
+  return { dropFrames: true };
+};
+
+runtime.enableFailureArtifacts({ onBeforePersist: redact });
+```
+
 **See examples:** [`examples/asserts/`](examples/asserts/)
 
 ## 🚀 Quick Start: Choose Your Abstraction Level

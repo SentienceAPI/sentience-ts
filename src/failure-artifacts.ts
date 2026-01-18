@@ -10,6 +10,8 @@ export interface FailureArtifactsOptions {
   fps?: number;
   persistMode?: PersistMode;
   outputDir?: string;
+  onBeforePersist?: ((ctx: RedactionContext) => RedactionResult) | null;
+  redactSnapshotValues?: boolean;
 }
 
 interface FrameRecord {
@@ -18,10 +20,46 @@ interface FrameRecord {
   filePath: string;
 }
 
+export interface RedactionContext {
+  runId: string;
+  reason: string | null;
+  status: 'failure' | 'success';
+  snapshot: any;
+  diagnostics: any;
+  framePaths: string[];
+  metadata: Record<string, any>;
+}
+
+export interface RedactionResult {
+  snapshot?: any;
+  diagnostics?: any;
+  framePaths?: string[];
+  dropFrames?: boolean;
+}
+
 async function writeJsonAtomic(filePath: string, data: any): Promise<void> {
   const tmpPath = `${filePath}.tmp`;
   await fs.promises.writeFile(tmpPath, JSON.stringify(data, null, 2));
   await fs.promises.rename(tmpPath, filePath);
+}
+
+function redactSnapshotDefaults(payload: any): any {
+  if (!payload || typeof payload !== 'object') {
+    return payload;
+  }
+  const elements = Array.isArray(payload.elements) ? payload.elements : null;
+  if (!elements) {
+    return payload;
+  }
+  const redactedElements = elements.map((el: any) => {
+    if (!el || typeof el !== 'object') return el;
+    const inputType = String(el.input_type || '').toLowerCase();
+    if (['password', 'email', 'tel'].includes(inputType) && 'value' in el) {
+      return { ...el, value: null, value_redacted: true };
+    }
+    return el;
+  });
+  return { ...payload, elements: redactedElements };
 }
 
 export class FailureArtifactBuffer {
@@ -46,6 +84,8 @@ export class FailureArtifactBuffer {
       fps: options.fps ?? 0,
       persistMode: options.persistMode ?? 'onFail',
       outputDir: options.outputDir ?? '.sentience/artifacts',
+      onBeforePersist: options.onBeforePersist ?? null,
+      redactSnapshotValues: options.redactSnapshotValues ?? true,
     };
     this.timeNow = timeNow;
     this.tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sentience-artifacts-'));
@@ -121,15 +161,60 @@ export class FailureArtifactBuffer {
 
     await writeJsonAtomic(path.join(runDir, 'steps.json'), this.steps);
 
+    let snapshotPayload = snapshot;
+    if (snapshotPayload && this.options.redactSnapshotValues) {
+      snapshotPayload = redactSnapshotDefaults(snapshotPayload);
+    }
+
+    let diagnosticsPayload = diagnostics;
+    let framePaths = this.frames.map(frame => frame.filePath);
+    let dropFrames = false;
+
+    if (this.options.onBeforePersist) {
+      try {
+        const result = this.options.onBeforePersist({
+          runId: this.runId,
+          reason,
+          status,
+          snapshot: snapshotPayload,
+          diagnostics: diagnosticsPayload,
+          framePaths,
+          metadata: metadata ?? {},
+        });
+        if (result.snapshot !== undefined) {
+          snapshotPayload = result.snapshot;
+        }
+        if (result.diagnostics !== undefined) {
+          diagnosticsPayload = result.diagnostics;
+        }
+        if (result.framePaths) {
+          framePaths = result.framePaths;
+        }
+        dropFrames = Boolean(result.dropFrames);
+      } catch {
+        dropFrames = true;
+      }
+    }
+
+    if (!dropFrames) {
+      for (const framePath of framePaths) {
+        if (!fs.existsSync(framePath)) {
+          continue;
+        }
+        const fileName = path.basename(framePath);
+        await fs.promises.copyFile(framePath, path.join(framesOut, fileName));
+      }
+    }
+
     let snapshotWritten = false;
-    if (snapshot) {
-      await writeJsonAtomic(path.join(runDir, 'snapshot.json'), snapshot);
+    if (snapshotPayload) {
+      await writeJsonAtomic(path.join(runDir, 'snapshot.json'), snapshotPayload);
       snapshotWritten = true;
     }
 
     let diagnosticsWritten = false;
-    if (diagnostics) {
-      await writeJsonAtomic(path.join(runDir, 'diagnostics.json'), diagnostics);
+    if (diagnosticsPayload) {
+      await writeJsonAtomic(path.join(runDir, 'diagnostics.json'), diagnosticsPayload);
       diagnosticsWritten = true;
     }
 
@@ -139,11 +224,13 @@ export class FailureArtifactBuffer {
       status,
       reason,
       buffer_seconds: this.options.bufferSeconds,
-      frame_count: this.frames.length,
-      frames: this.frames.map(frame => ({ file: frame.fileName, ts: frame.ts })),
+      frame_count: dropFrames ? 0 : framePaths.length,
+      frames: dropFrames ? [] : framePaths.map(p => ({ file: path.basename(p), ts: null })),
       snapshot: snapshotWritten ? 'snapshot.json' : null,
       diagnostics: diagnosticsWritten ? 'diagnostics.json' : null,
       metadata: metadata ?? {},
+      frames_redacted: !dropFrames && Boolean(this.options.onBeforePersist),
+      frames_dropped: dropFrames,
     };
     await writeJsonAtomic(path.join(runDir, 'manifest.json'), manifest);
 
