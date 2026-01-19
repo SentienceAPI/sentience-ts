@@ -10,7 +10,7 @@ export interface CaptchaContext {
   stepIndex: number;
   url: string;
   source: CaptchaSource;
-  captcha: CaptchaDiagnostics;
+  captcha: CaptchaDiagnostics | null;
   screenshotPath?: string;
   framesDir?: string;
   snapshotPath?: string;

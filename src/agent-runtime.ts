@@ -593,13 +593,14 @@ export class AgentRuntime {
           'Captcha retry_new_session exhausted.'
         );
       }
-      if (!options.resetSession) {
+      const resetSession = this.captchaOptions?.resetSession;
+      if (!resetSession) {
         throw new CaptchaHandlingError(
           'captcha_retry_new_session',
           'resetSession callback is required for retry_new_session.'
         );
       }
-      await options.resetSession();
+      await resetSession();
       return;
     }
 
