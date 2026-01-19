@@ -45,11 +45,26 @@ import { AssertContext, Predicate } from './verification';
 import { Tracer } from './tracing/tracer';
 import { LLMProvider } from './llm-provider';
 import { FailureArtifactBuffer, FailureArtifactsOptions } from './failure-artifacts';
+import {
+  CaptchaContext,
+  CaptchaHandlingError,
+  CaptchaOptions,
+  CaptchaResolution,
+  CaptchaSource,
+} from './captcha/types';
 
 // Define a minimal browser interface to avoid circular dependencies
 interface BrowserLike {
   snapshot(page: Page, options?: Record<string, any>): Promise<Snapshot>;
 }
+
+const DEFAULT_CAPTCHA_OPTIONS: Required<Omit<CaptchaOptions, 'handler' | 'resetSession'>> = {
+  policy: 'abort',
+  minConfidence: 0.7,
+  timeoutMs: 120_000,
+  pollMs: 1_000,
+  maxRetriesNewSession: 1,
+};
 
 /**
  * Assertion record for accumulation and step_end emission.
@@ -333,6 +348,10 @@ export class AgentRuntime {
   private taskDone: boolean = false;
   private taskDoneLabel: string | null = null;
 
+  /** CAPTCHA handling (optional, disabled by default) */
+  private captchaOptions: CaptchaOptions | null = null;
+  private captchaRetryCount: number = 0;
+
   private static similarity(a: string, b: string): number {
     const s1 = a.toLowerCase();
     const s2 = b.toLowerCase();
@@ -423,6 +442,17 @@ export class AgentRuntime {
   }
 
   /**
+   * Configure CAPTCHA handling (disabled by default unless set).
+   */
+  setCaptchaOptions(options: CaptchaOptions): void {
+    this.captchaOptions = {
+      ...DEFAULT_CAPTCHA_OPTIONS,
+      ...options,
+    };
+    this.captchaRetryCount = 0;
+  }
+
+  /**
    * Build assertion context from current state.
    */
   private ctx(): AssertContext {
@@ -449,8 +479,157 @@ export class AgentRuntime {
    * @returns Snapshot of current page state
    */
   async snapshot(options?: Record<string, any>): Promise<Snapshot> {
-    this.lastSnapshot = await this.browser.snapshot(this.page, options);
+    const { _skipCaptchaHandling, ...snapshotOptions } = options || {};
+    this.lastSnapshot = await this.browser.snapshot(this.page, snapshotOptions);
+    if (!_skipCaptchaHandling) {
+      await this.handleCaptchaIfNeeded(this.lastSnapshot, 'gateway');
+    }
     return this.lastSnapshot;
+  }
+
+  private isCaptchaDetected(snapshot: Snapshot): boolean {
+    const options = this.captchaOptions;
+    if (!options) {
+      return false;
+    }
+    const captcha = snapshot.diagnostics?.captcha;
+    if (!captcha || !captcha.detected) {
+      return false;
+    }
+    const confidence = captcha.confidence ?? 0;
+    const minConfidence = options.minConfidence ?? DEFAULT_CAPTCHA_OPTIONS.minConfidence;
+    return confidence >= minConfidence;
+  }
+
+  private buildCaptchaContext(snapshot: Snapshot, source: CaptchaSource): CaptchaContext {
+    return {
+      runId: this.tracer.getRunId(),
+      stepIndex: this.stepIndex,
+      url: snapshot.url,
+      source,
+      captcha: snapshot.diagnostics?.captcha ?? null,
+    };
+  }
+
+  private emitCaptchaEvent(reasonCode: string, details: Record<string, any> = {}): void {
+    this.tracer.emit(
+      'verification',
+      {
+        kind: 'captcha',
+        passed: false,
+        label: reasonCode,
+        details: { reason_code: reasonCode, ...details },
+      },
+      this.stepId || undefined
+    );
+  }
+
+  private async handleCaptchaIfNeeded(snapshot: Snapshot, source: CaptchaSource): Promise<void> {
+    if (!this.captchaOptions) {
+      return;
+    }
+    if (!this.isCaptchaDetected(snapshot)) {
+      return;
+    }
+
+    const options = this.captchaOptions;
+    const minConfidence = options.minConfidence ?? DEFAULT_CAPTCHA_OPTIONS.minConfidence;
+    const captcha = snapshot.diagnostics?.captcha ?? null;
+
+    this.emitCaptchaEvent('captcha_detected', { captcha, min_confidence: minConfidence });
+
+    let resolution: CaptchaResolution;
+    if (options.policy === 'callback') {
+      if (!options.handler) {
+        this.emitCaptchaEvent('captcha_handler_error');
+        throw new CaptchaHandlingError(
+          'captcha_handler_error',
+          'Captcha handler is required for policy="callback".'
+        );
+      }
+      try {
+        resolution = await options.handler(this.buildCaptchaContext(snapshot, source));
+      } catch (err: any) {
+        this.emitCaptchaEvent('captcha_handler_error', { error: String(err?.message || err) });
+        throw new CaptchaHandlingError('captcha_handler_error', 'Captcha handler failed.', {
+          error: String(err?.message || err),
+        });
+      }
+      if (!resolution || !resolution.action) {
+        this.emitCaptchaEvent('captcha_handler_error');
+        throw new CaptchaHandlingError(
+          'captcha_handler_error',
+          'Captcha handler returned an invalid resolution.'
+        );
+      }
+    } else {
+      resolution = { action: 'abort' };
+    }
+
+    await this.applyCaptchaResolution(resolution, snapshot, source);
+  }
+
+  private async applyCaptchaResolution(
+    resolution: CaptchaResolution,
+    snapshot: Snapshot,
+    source: CaptchaSource
+  ): Promise<void> {
+    const options = this.captchaOptions || DEFAULT_CAPTCHA_OPTIONS;
+    if (resolution.action === 'abort') {
+      this.emitCaptchaEvent('captcha_policy_abort', { message: resolution.message });
+      throw new CaptchaHandlingError(
+        'captcha_policy_abort',
+        resolution.message || 'Captcha detected. Aborting per policy.'
+      );
+    }
+
+    if (resolution.action === 'retry_new_session') {
+      this.captchaRetryCount += 1;
+      this.emitCaptchaEvent('captcha_retry_new_session');
+      if (this.captchaRetryCount > (options.maxRetriesNewSession ?? 1)) {
+        this.emitCaptchaEvent('captcha_retry_exhausted');
+        throw new CaptchaHandlingError(
+          'captcha_retry_exhausted',
+          'Captcha retry_new_session exhausted.'
+        );
+      }
+      const resetSession = this.captchaOptions?.resetSession;
+      if (!resetSession) {
+        throw new CaptchaHandlingError(
+          'captcha_retry_new_session',
+          'resetSession callback is required for retry_new_session.'
+        );
+      }
+      await resetSession();
+      return;
+    }
+
+    if (resolution.action === 'wait_until_cleared') {
+      const timeoutMs =
+        resolution.timeoutMs ?? options.timeoutMs ?? DEFAULT_CAPTCHA_OPTIONS.timeoutMs;
+      const pollMs = resolution.pollMs ?? options.pollMs ?? DEFAULT_CAPTCHA_OPTIONS.pollMs;
+      await this.waitUntilCleared(timeoutMs, pollMs, snapshot, source);
+      this.emitCaptchaEvent('captcha_resumed');
+    }
+  }
+
+  private async waitUntilCleared(
+    timeoutMs: number,
+    pollMs: number,
+    snapshot: Snapshot,
+    source: CaptchaSource
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() <= deadline) {
+      await new Promise(res => setTimeout(res, pollMs));
+      const next = await this.snapshot({ _skipCaptchaHandling: true });
+      if (!this.isCaptchaDetected(next)) {
+        this.emitCaptchaEvent('captcha_cleared', { source });
+        return;
+      }
+    }
+    this.emitCaptchaEvent('captcha_wait_timeout', { timeout_ms: timeoutMs });
+    throw new CaptchaHandlingError('captcha_wait_timeout', 'Captcha wait_until_cleared timed out.');
   }
 
   /**

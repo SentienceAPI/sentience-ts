@@ -70,6 +70,8 @@ export {
   isCollapsed,
 } from './verification';
 export { AgentRuntime, AssertionHandle, AssertionRecord, EventuallyOptions } from './agent-runtime';
+export * from './captcha/types';
+export * from './captcha/strategies';
 
 // Ordinal Support (Phase 3)
 export {

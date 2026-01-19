@@ -29,6 +29,7 @@ Use `AgentRuntime` to add Jest-style assertions to your agent loops. Verify brow
 import {
   SentienceBrowser,
   AgentRuntime,
+  HumanHandoffSolver,
   urlContains,
   exists,
   allOf,
@@ -75,12 +76,42 @@ const ok = await runtime
   .eventually({ timeoutMs: 10_000, pollMs: 250, minConfidence: 0.7, maxSnapshotAttempts: 3 });
 console.log('eventually() result:', ok);
 
+// CAPTCHA handling (detection + handoff + verify)
+runtime.setCaptchaOptions({
+  policy: 'callback',
+  handler: HumanHandoffSolver(),
+});
+
 // Check task completion
 if (runtime.assertDone(exists("text~'Example'"), 'task_complete')) {
   console.log('✅ Task completed!');
 }
 
 console.log(`Task done: ${runtime.isTaskDone}`);
+```
+
+#### CAPTCHA strategies (Batteries Included)
+
+```typescript
+import { ExternalSolver, HumanHandoffSolver, VisionSolver } from 'sentienceapi';
+
+// Human-in-loop
+runtime.setCaptchaOptions({ policy: 'callback', handler: HumanHandoffSolver() });
+
+// Vision verification only
+runtime.setCaptchaOptions({ policy: 'callback', handler: VisionSolver() });
+
+// External system/webhook
+runtime.setCaptchaOptions({
+  policy: 'callback',
+  handler: ExternalSolver(async ctx => {
+    await fetch(process.env.CAPTCHA_WEBHOOK_URL!, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runId: ctx.runId, url: ctx.url }),
+    });
+  }),
+});
 ```
 
 ### Failure Artifact Buffer (Phase 1)
