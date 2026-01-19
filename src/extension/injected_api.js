@@ -10,6 +10,165 @@
         }
         return elements;
     }
+    const CAPTCHA_TEXT_KEYWORDS = [ "verify you are human", "captcha", "human verification", "unusual traffic", "are you a robot", "security check", "prove you are human", "bot detection", "automated access" ], CAPTCHA_URL_HINTS = [ "captcha", "challenge", "verify" ], CAPTCHA_IFRAME_HINTS = {
+        recaptcha: [ "recaptcha", "google.com/recaptcha" ],
+        hcaptcha: [ "hcaptcha.com" ],
+        turnstile: [ "challenges.cloudflare.com", "turnstile" ],
+        arkose: [ "arkoselabs.com", "funcaptcha.com", "client-api.arkoselabs.com" ],
+        awswaf: [ "amazonaws.com/captcha", "awswaf.com" ]
+    }, CAPTCHA_SCRIPT_HINTS = {
+        recaptcha: [ "recaptcha" ],
+        hcaptcha: [ "hcaptcha" ],
+        turnstile: [ "turnstile", "challenges.cloudflare.com" ],
+        arkose: [ "arkoselabs", "funcaptcha" ],
+        awswaf: [ "captcha.awswaf", "awswaf-captcha" ]
+    }, CAPTCHA_CONTAINER_SELECTORS = [ {
+        selector: ".g-recaptcha",
+        provider: "recaptcha"
+    }, {
+        selector: "#g-recaptcha",
+        provider: "recaptcha"
+    }, {
+        selector: "[data-sitekey]",
+        provider: "unknown"
+    }, {
+        selector: 'iframe[title*="recaptcha" i]',
+        provider: "recaptcha"
+    }, {
+        selector: ".h-captcha",
+        provider: "hcaptcha"
+    }, {
+        selector: "#h-captcha",
+        provider: "hcaptcha"
+    }, {
+        selector: 'iframe[title*="hcaptcha" i]',
+        provider: "hcaptcha"
+    }, {
+        selector: ".cf-turnstile",
+        provider: "turnstile"
+    }, {
+        selector: "[data-cf-turnstile-sitekey]",
+        provider: "turnstile"
+    }, {
+        selector: 'iframe[src*="challenges.cloudflare.com"]',
+        provider: "turnstile"
+    }, {
+        selector: "#FunCaptcha",
+        provider: "arkose"
+    }, {
+        selector: ".funcaptcha",
+        provider: "arkose"
+    }, {
+        selector: "[data-arkose-public-key]",
+        provider: "arkose"
+    }, {
+        selector: 'iframe[src*="arkoselabs"]',
+        provider: "arkose"
+    }, {
+        selector: "#captcha-container",
+        provider: "awswaf"
+    }, {
+        selector: "[data-awswaf-captcha]",
+        provider: "awswaf"
+    }, {
+        selector: 'iframe[title*="captcha" i]',
+        provider: "unknown"
+    } ];
+    function addEvidence(list, value) {
+        value && (list.length >= 5 || list.push(value));
+    }
+    function truncateText(text, maxLen) {
+        return text ? text.length <= maxLen ? text : text.slice(0, maxLen) : "";
+    }
+    function matchHints(value, hints) {
+        const lower = String(value || "").toLowerCase();
+        return !!lower && hints.some(hint => lower.includes(hint));
+    }
+    function detectCaptcha() {
+        const evidence = {
+            text_hits: [],
+            selector_hits: [],
+            iframe_src_hits: [],
+            url_hits: []
+        };
+        let hasIframeHit = !1, hasContainerHit = !1, hasScriptHit = !1, hasKeywordHit = !1, hasUrlHit = !1;
+        const providerSignals = {
+            recaptcha: 0,
+            hcaptcha: 0,
+            turnstile: 0,
+            arkose: 0,
+            awswaf: 0
+        };
+        try {
+            const iframes = document.querySelectorAll("iframe");
+            for (const iframe of iframes) {
+                const src = iframe.getAttribute("src") || "", title = iframe.getAttribute("title") || "";
+                if (src) for (const [provider, hints] of Object.entries(CAPTCHA_IFRAME_HINTS)) matchHints(src, hints) && (hasIframeHit = !0, 
+                providerSignals[provider] += 1, addEvidence(evidence.iframe_src_hits, truncateText(src, 120)));
+                if (title && matchHints(title, [ "captcha", "recaptcha" ]) && (hasContainerHit = !0, 
+                addEvidence(evidence.selector_hits, 'iframe[title*="captcha"]')), evidence.iframe_src_hits.length >= 5) break;
+            }
+        } catch (e) {}
+        try {
+            const scripts = document.querySelectorAll("script[src]");
+            for (const script of scripts) {
+                const src = script.getAttribute("src") || "";
+                if (src) {
+                    for (const [provider, hints] of Object.entries(CAPTCHA_SCRIPT_HINTS)) matchHints(src, hints) && (hasScriptHit = !0, 
+                    providerSignals[provider] += 1, addEvidence(evidence.selector_hits, `script[src*="${hints[0]}"]`));
+                    if (evidence.selector_hits.length >= 5) break;
+                }
+            }
+        } catch (e) {}
+        for (const {selector: selector, provider: provider} of CAPTCHA_CONTAINER_SELECTORS) try {
+            document.querySelector(selector) && (hasContainerHit = !0, addEvidence(evidence.selector_hits, selector), 
+            "unknown" !== provider && (providerSignals[provider] += 1));
+        } catch (e) {}
+        const textSnippet = function() {
+            try {
+                const candidates = document.querySelectorAll("h1, h2, h3, h4, p, label, button, form, div, span");
+                let combined = "", count = 0;
+                for (const node of candidates) {
+                    if (count >= 30 || combined.length >= 2e3) break;
+                    if (!node || "string" != typeof node.innerText) continue;
+                    if (!node.offsetWidth && !node.offsetHeight && !node.getClientRects().length) continue;
+                    const text = node.innerText.replace(/\s+/g, " ").trim();
+                    text && (combined += `${text} `, count += 1);
+                }
+                if (combined = combined.trim(), combined) return truncateText(combined, 2e3);
+            } catch (e) {}
+            try {
+                let bodyText = document.body?.innerText || "";
+                return !bodyText && document.body?.textContent && (bodyText = document.body.textContent), 
+                truncateText(bodyText.replace(/\s+/g, " ").trim(), 2e3);
+            } catch (e) {
+                return "";
+            }
+        }();
+        if (textSnippet) {
+            const lowerText = textSnippet.toLowerCase();
+            for (const keyword of CAPTCHA_TEXT_KEYWORDS) lowerText.includes(keyword) && (hasKeywordHit = !0, 
+            addEvidence(evidence.text_hits, keyword));
+        }
+        try {
+            const lowerUrl = (window.location?.href || "").toLowerCase();
+            for (const hint of CAPTCHA_URL_HINTS) lowerUrl.includes(hint) && (hasUrlHit = !0, 
+            addEvidence(evidence.url_hits, hint));
+        } catch (e) {}
+        let confidence = 0;
+        hasIframeHit && (confidence += .7), hasContainerHit && (confidence += .5), hasScriptHit && (confidence += .5), 
+        hasKeywordHit && (confidence += .3), hasUrlHit && (confidence += .2), confidence = Math.min(1, confidence), 
+        hasIframeHit && (confidence = Math.max(confidence, .8)), !hasKeywordHit || hasIframeHit || hasContainerHit || hasScriptHit || hasUrlHit || (confidence = Math.min(confidence, .4));
+        const detected = confidence >= .7;
+        let providerHint = null;
+        return providerSignals.recaptcha > 0 ? providerHint = "recaptcha" : providerSignals.hcaptcha > 0 ? providerHint = "hcaptcha" : providerSignals.turnstile > 0 ? providerHint = "turnstile" : providerSignals.arkose > 0 ? providerHint = "arkose" : providerSignals.awswaf > 0 ? providerHint = "awswaf" : detected && (providerHint = "unknown"), 
+        {
+            detected: detected,
+            provider_hint: providerHint,
+            confidence: confidence,
+            evidence: evidence
+        };
+    }
     const DEFAULT_INFERENCE_CONFIG = {
         allowedTags: [ "label", "span", "div" ],
         allowedRoles: [],
@@ -691,7 +850,8 @@
                         ready_state: document.readyState || null,
                         quiet_ms: quietMs,
                         node_count: nodeCount
-                    }
+                    },
+                    captcha: detectCaptcha()
                 };
             } catch (e) {}
             return {
