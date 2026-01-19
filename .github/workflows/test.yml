@@ -63,7 +63,13 @@ jobs:
           echo "Warning: src/extension not found, tests may fail"
         fi
 
-    - name: Run tests
+    - name: Phase 0 regression safety net
+      run: |
+        npm test -- agent-runtime-assertions.test.ts
+      env:
+        CI: true
+
+    - name: Run full test suite
       run: |
         npm test
       env:
