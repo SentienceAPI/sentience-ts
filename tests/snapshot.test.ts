@@ -23,7 +23,7 @@ describe('Snapshot', () => {
     } finally {
       await browser.close();
     }
-  }, 60000); // 60 seconds - browser startup can be slow
+  }, 90000); // 90 seconds - Windows CI can be slow
 
   it('should have valid element structure', async () => {
     const browser = await createTestBrowser();

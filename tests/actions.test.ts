@@ -174,7 +174,7 @@ describe('Actions', () => {
       } finally {
         await browser.close();
       }
-    }, 60000);
+    }, 90000); // 90 seconds - Windows CI can be slow
 
     it('should take snapshot after scroll when requested', async () => {
       const browser = await createTestBrowser();

@@ -301,5 +301,5 @@ describe('video recording', () => {
         throw error;
       }
     }
-  });
+  }, 180000); // 180 seconds - tests 3 resolutions with browser start/stop each, Windows CI can be slow
 });
