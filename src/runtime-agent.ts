@@ -78,26 +78,49 @@ export class RuntimeAgent {
     const { taskGoal, step } = opts;
     this.runtime.beginStep(step.goal);
 
-    const snap = await this.snapshotWithRamp(step);
+    let ok = false;
+    let emitted = false;
+    try {
+      const snap = await this.snapshotWithRamp(step);
 
-    if (await this.shouldShortCircuitToVision(step, snap)) {
-      return await this.visionExecutorAttempt({ taskGoal, step, snap });
+      if (await this.shouldShortCircuitToVision(step, snap)) {
+        ok = await this.visionExecutorAttempt({ taskGoal, step, snap });
+        return ok;
+      }
+
+      // 1) Structured executor attempt.
+      const action = await this.proposeStructuredAction({ taskGoal, step, snap });
+      await this.executeAction(action, snap);
+      ok = await this.applyVerifications(step);
+      if (ok) return true;
+
+      // 2) Optional vision executor fallback (bounded).
+      const enabled = step.visionExecutorEnabled ?? true;
+      const maxAttempts = step.maxVisionExecutorAttempts ?? 1;
+      if (enabled && maxAttempts > 0) {
+        ok = await this.visionExecutorAttempt({ taskGoal, step, snap });
+        return ok;
+      }
+
+      return false;
+    } catch (error: any) {
+      this.runtime.emitStepEnd({
+        success: false,
+        verifyPassed: false,
+        error: String(error?.message ?? error),
+        outcome: 'exception',
+      });
+      emitted = true;
+      throw error;
+    } finally {
+      if (!emitted) {
+        this.runtime.emitStepEnd({
+          success: ok,
+          verifyPassed: ok,
+          outcome: ok ? 'ok' : 'verification_failed',
+        });
+      }
     }
-
-    // 1) Structured executor attempt.
-    const action = await this.proposeStructuredAction({ taskGoal, step, snap });
-    await this.executeAction(action, snap);
-    const ok = await this.applyVerifications(step);
-    if (ok) return true;
-
-    // 2) Optional vision executor fallback (bounded).
-    const enabled = step.visionExecutorEnabled ?? true;
-    const maxAttempts = step.maxVisionExecutorAttempts ?? 1;
-    if (enabled && maxAttempts > 0) {
-      return await this.visionExecutorAttempt({ taskGoal, step, snap });
-    }
-
-    return false;
   }
 
   private async snapshotWithRamp(step: RuntimeStep): Promise<Snapshot> {

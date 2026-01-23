@@ -339,6 +339,19 @@ export class SentienceAgent {
         if (this.tracer) {
           const preUrl = snap.url;
           const postUrl = this.browser.getPage()?.url() || null;
+          let postSnapshotDigest: string | undefined;
+          try {
+            const postSnap = await snapshot(this.browser, {
+              goal: `${goal} (post)`,
+              limit: Math.min(this.snapshotLimit, 10),
+              show_overlay: this.showOverlay,
+            });
+            if (postSnap.status === 'success') {
+              postSnapshotDigest = TraceEventBuilder.buildSnapshotDigest(postSnap);
+            }
+          } catch {
+            postSnapshotDigest = undefined;
+          }
 
           // Build step_end event using TraceEventBuilder
           // Use snapWithDiff to include elements with diff_status in pre field
@@ -349,6 +362,7 @@ export class SentienceAgent {
             attempt,
             preUrl,
             postUrl,
+            postSnapshotDigest,
             snapshot: snapWithDiff,
             llmResponse,
             result,

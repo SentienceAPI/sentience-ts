@@ -832,6 +832,19 @@ Return ONLY the integer ID number from the label, nothing else.`;
         const preUrl = snap.url;
         const page = (this as any).browser.getPage();
         const postUrl = page ? page.url() || null : null;
+        let postSnapshotDigest: string | undefined;
+        try {
+          const postSnap = await snapshot((this as any).browser, {
+            goal: `${goal} (post)`,
+            limit: Math.min((this as any).snapshotLimit, 10),
+            show_overlay: (this as any).showOverlay,
+          });
+          if (postSnap.status === 'success') {
+            postSnapshotDigest = TraceEventBuilder.buildSnapshotDigest(postSnap);
+          }
+        } catch {
+          postSnapshotDigest = undefined;
+        }
 
         // Build complete step_end event
         // Note: snapshotDigest, llmResponseText, execData, and verifyData are computed
@@ -845,6 +858,7 @@ Return ONLY the integer ID number from the label, nothing else.`;
           attempt: 0,
           preUrl,
           postUrl: postUrl || preUrl,
+          postSnapshotDigest,
           snapshot: snapWithDiff,
           llmResponse,
           result,

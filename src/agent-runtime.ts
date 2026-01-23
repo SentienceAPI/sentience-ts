@@ -44,6 +44,7 @@ import { Page } from 'playwright';
 import { Snapshot } from './types';
 import { AssertContext, Predicate } from './verification';
 import { Tracer } from './tracing/tracer';
+import { TraceEventBuilder } from './utils/trace-event-builder';
 import { LLMProvider } from './llm-provider';
 import { FailureArtifactBuffer, FailureArtifactsOptions } from './failure-artifacts';
 import {
@@ -338,6 +339,8 @@ export class AgentRuntime {
   stepIndex: number = 0;
   /** Most recent snapshot (for assertion context) */
   lastSnapshot: Snapshot | null = null;
+  private stepPreSnapshot: Snapshot | null = null;
+  private stepPreUrl: string | null = null;
   /** Best-effort download records (Playwright downloads) */
   private downloads: Array<Record<string, any>> = [];
 
@@ -347,6 +350,8 @@ export class AgentRuntime {
 
   /** Assertions accumulated during current step */
   private assertionsThisStep: AssertionRecord[] = [];
+  private stepGoal: string | null = null;
+  private lastAction: string | null = null;
   /** Task completion tracking */
   private taskDone: boolean = false;
   private taskDoneLabel: string | null = null;
@@ -532,6 +537,10 @@ export class AgentRuntime {
   async snapshot(options?: Record<string, any>): Promise<Snapshot> {
     const { _skipCaptchaHandling, ...snapshotOptions } = options || {};
     this.lastSnapshot = await this.browser.snapshot(this.page, snapshotOptions);
+    if (this.lastSnapshot && !this.stepPreSnapshot) {
+      this.stepPreSnapshot = this.lastSnapshot;
+      this.stepPreUrl = this.lastSnapshot.url;
+    }
     if (!_skipCaptchaHandling) {
       await this.handleCaptchaIfNeeded(this.lastSnapshot, 'gateway');
     }
@@ -713,6 +722,7 @@ export class AgentRuntime {
    * Record an action in the artifact timeline and capture a frame if enabled.
    */
   async recordAction(action: string, url?: string): Promise<void> {
+    this.lastAction = action;
     if (!this.artifactBuffer) {
       return;
     }
@@ -720,6 +730,84 @@ export class AgentRuntime {
     if (this.artifactBuffer.getOptions().captureOnAction) {
       await this.captureArtifactFrame();
     }
+  }
+
+  /**
+   * Emit a step_end event using TraceEventBuilder.
+   */
+  emitStepEnd(opts: {
+    action?: string;
+    success?: boolean;
+    error?: string;
+    outcome?: string;
+    durationMs?: number;
+    attempt?: number;
+    verifyPassed?: boolean;
+    verifySignals?: Record<string, any>;
+    postUrl?: string;
+    postSnapshotDigest?: string;
+  }): any {
+    const goal = this.stepGoal || '';
+    const preSnap = this.stepPreSnapshot || this.lastSnapshot;
+    const preUrl = this.stepPreUrl || preSnap?.url || this.page?.url?.() || '';
+    const postUrl = opts.postUrl || this.page?.url?.() || this.lastSnapshot?.url || preUrl;
+
+    const preDigest = preSnap ? TraceEventBuilder.buildSnapshotDigest(preSnap) : undefined;
+    const postDigest =
+      opts.postSnapshotDigest ||
+      (this.lastSnapshot ? TraceEventBuilder.buildSnapshotDigest(this.lastSnapshot) : undefined);
+
+    const urlChanged = Boolean(preUrl && postUrl && String(preUrl) !== String(postUrl));
+    const assertionsData = this.getAssertionsForStepEnd();
+
+    const signals = { ...(opts.verifySignals || {}) } as Record<string, any>;
+    if (signals.url_changed === undefined) {
+      signals.url_changed = urlChanged;
+    }
+    if (opts.error && signals.error === undefined) {
+      signals.error = opts.error;
+    }
+    if (assertionsData.task_done !== undefined) {
+      signals.task_done = assertionsData.task_done;
+    }
+    if (assertionsData.task_done_label) {
+      signals.task_done_label = assertionsData.task_done_label;
+    }
+
+    const verifyPassed =
+      opts.verifyPassed !== undefined ? opts.verifyPassed : this.requiredAssertionsPassed();
+
+    const execData = {
+      success: opts.success !== undefined ? opts.success : verifyPassed,
+      action: opts.action || this.lastAction || 'unknown',
+      outcome: opts.outcome || '',
+      duration_ms: opts.durationMs,
+      error: opts.error,
+    };
+
+    const verifyData = {
+      passed: Boolean(verifyPassed),
+      signals,
+    };
+
+    const stepEndData = TraceEventBuilder.buildRuntimeStepEndData({
+      stepId: this.stepId || '',
+      stepIndex: this.stepIndex,
+      goal,
+      attempt: opts.attempt ?? 0,
+      preUrl,
+      postUrl,
+      preSnapshotDigest: preDigest,
+      postSnapshotDigest: postDigest,
+      execData,
+      verifyData,
+      assertions: assertionsData.assertions,
+      taskDone: assertionsData.task_done,
+      taskDoneLabel: assertionsData.task_done_label,
+    });
+
+    this.tracer.emit('step_end', stepEndData, this.stepId || undefined);
+    return stepEndData;
   }
 
   private async captureArtifactFrame(): Promise<void> {
@@ -797,6 +885,10 @@ export class AgentRuntime {
   beginStep(goal: string, stepIndex?: number): string {
     // Clear previous step state
     this.assertionsThisStep = [];
+    this.stepPreSnapshot = null;
+    this.stepPreUrl = null;
+    this.stepGoal = goal;
+    this.lastAction = null;
 
     // Update step index
     if (stepIndex !== undefined) {

@@ -169,12 +169,23 @@ export class TraceEventBuilder {
     attempt: number;
     preUrl: string;
     postUrl: string | null;
+    postSnapshotDigest?: string;
     snapshot: Snapshot;
     llmResponse: LLMResponse;
     result: AgentActResult;
   }): TraceEventData {
-    const { stepId, stepIndex, goal, attempt, preUrl, postUrl, snapshot, llmResponse, result } =
-      params;
+    const {
+      stepId,
+      stepIndex,
+      goal,
+      attempt,
+      preUrl,
+      postUrl,
+      postSnapshotDigest,
+      snapshot,
+      llmResponse,
+      result,
+    } = params;
 
     const snapshotDigest = this.buildSnapshotDigest(snapshot);
     const llmData = this.buildLLMData(llmResponse);
@@ -231,8 +242,77 @@ export class TraceEventBuilder {
       exec: execData,
       post: {
         url: postUrl || undefined,
+        snapshot_digest: postSnapshotDigest,
       },
       verify: verifyData,
+    };
+  }
+
+  /**
+   * Build step_end event data for AgentRuntime (verification loop).
+   */
+  static buildRuntimeStepEndData(params: {
+    stepId: string;
+    stepIndex: number;
+    goal: string;
+    attempt: number;
+    preUrl: string;
+    postUrl: string;
+    preSnapshotDigest?: string;
+    postSnapshotDigest?: string;
+    execData: TraceEventData['exec'];
+    verifyData: TraceEventData['verify'];
+    assertions?: NonNullable<TraceEventData['verify']>['signals']['assertions'];
+    taskDone?: boolean;
+    taskDoneLabel?: string;
+  }): TraceEventData {
+    const {
+      stepId,
+      stepIndex,
+      goal,
+      attempt,
+      preUrl,
+      postUrl,
+      preSnapshotDigest,
+      postSnapshotDigest,
+      execData,
+      verifyData,
+      assertions,
+      taskDone,
+      taskDoneLabel,
+    } = params;
+
+    const signals = { ...(verifyData?.signals || {}) } as Record<string, any>;
+    if (assertions && assertions.length > 0) {
+      signals.assertions = assertions;
+    }
+    if (typeof taskDone === 'boolean') {
+      signals.task_done = taskDone;
+    }
+    if (taskDoneLabel) {
+      signals.task_done_label = taskDoneLabel;
+    }
+
+    return {
+      v: 1,
+      step_id: stepId,
+      step_index: stepIndex,
+      goal,
+      attempt,
+      pre: {
+        url: preUrl,
+        snapshot_digest: preSnapshotDigest,
+      },
+      llm: {},
+      exec: execData,
+      post: {
+        url: postUrl,
+        snapshot_digest: postSnapshotDigest,
+      },
+      verify: {
+        passed: verifyData?.passed ?? false,
+        signals,
+      },
     };
   }
 
@@ -297,6 +377,7 @@ export class TraceEventBuilder {
     attempt: number;
     preUrl: string | null;
     postUrl: string | null;
+    postSnapshotDigest?: string;
     snapshot?: Snapshot | null;
     llmResponse?: LLMResponse | null;
     error: string;
@@ -310,6 +391,7 @@ export class TraceEventBuilder {
       preUrl,
       postUrl,
       snapshot,
+      postSnapshotDigest,
       llmResponse,
       error,
       durationMs,
@@ -390,6 +472,7 @@ export class TraceEventBuilder {
       exec: execData,
       post: {
         url: postUrl || undefined,
+        snapshot_digest: postSnapshotDigest,
       },
       verify: verifyData,
     };
