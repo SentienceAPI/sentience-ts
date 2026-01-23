@@ -792,38 +792,84 @@
                     }
                 });
             } catch (error) {}
-            const processed = await function(rawData, options) {
-                return new Promise((resolve, reject) => {
-                    const requestId = Math.random().toString(36).substring(7);
-                    let resolved = !1;
-                    const timeout = setTimeout(() => {
-                        resolved || (resolved = !0, window.removeEventListener("message", listener), reject(new Error("WASM processing timeout - extension may be unresponsive. Try reloading the extension.")));
-                    }, 25e3), listener = e => {
-                        if ("SENTIENCE_SNAPSHOT_RESULT" === e.data.type && e.data.requestId === requestId) {
-                            if (resolved) return;
-                            resolved = !0, clearTimeout(timeout), window.removeEventListener("message", listener), 
-                            e.data.error ? reject(new Error(e.data.error)) : resolve({
-                                elements: e.data.elements,
-                                raw_elements: e.data.raw_elements,
-                                duration: e.data.duration
-                            });
+            const fallbackElementsFromRaw = raw => (raw || []).map(r => {
+                const rect = r && r.rect || {
+                    x: 0,
+                    y: 0,
+                    width: 0,
+                    height: 0
+                }, attrs = r && r.attributes || {}, role = attrs.role || r && (r.inferred_role || r.inferredRole) || (r && "a" === r.tag ? "link" : "generic"), href = attrs.href || r && r.href || null, isClickable = "link" === role || "button" === role || "textbox" === role || "checkbox" === role || "radio" === role || "combobox" === role || !!href;
+                return {
+                    id: Number(r && r.id || 0),
+                    role: String(role || "generic"),
+                    text: r && (r.text || r.semantic_text || r.semanticText) || null,
+                    importance: 1,
+                    bbox: {
+                        x: Number(rect.x || 0),
+                        y: Number(rect.y || 0),
+                        width: Number(rect.width || 0),
+                        height: Number(rect.height || 0)
+                    },
+                    visual_cues: {
+                        is_primary: !1,
+                        is_clickable: !!isClickable
+                    },
+                    in_viewport: !0,
+                    is_occluded: !(!r || !r.occluded && !r.is_occluded),
+                    z_index: 0,
+                    name: attrs.aria_label || attrs.ariaLabel || null,
+                    value: r && r.value || null,
+                    input_type: attrs.type_ || attrs.type || null,
+                    checked: "boolean" == typeof (r && r.checked) ? r.checked : null,
+                    disabled: "boolean" == typeof (r && r.disabled) ? r.disabled : null,
+                    expanded: "boolean" == typeof (r && r.expanded) ? r.expanded : null
+                };
+            });
+            let processed = null;
+            try {
+                processed = await function(rawData, options) {
+                    return new Promise((resolve, reject) => {
+                        const requestId = Math.random().toString(36).substring(7);
+                        let resolved = !1;
+                        const timeout = setTimeout(() => {
+                            resolved || (resolved = !0, window.removeEventListener("message", listener), reject(new Error("WASM processing timeout - extension may be unresponsive. Try reloading the extension.")));
+                        }, 25e3), listener = e => {
+                            if ("SENTIENCE_SNAPSHOT_RESULT" === e.data.type && e.data.requestId === requestId) {
+                                if (resolved) return;
+                                resolved = !0, clearTimeout(timeout), window.removeEventListener("message", listener), 
+                                e.data.error ? reject(new Error(e.data.error)) : resolve({
+                                    elements: e.data.elements,
+                                    raw_elements: e.data.raw_elements,
+                                    duration: e.data.duration
+                                });
+                            }
+                        };
+                        window.addEventListener("message", listener);
+                        try {
+                            window.postMessage({
+                                type: "SENTIENCE_SNAPSHOT_REQUEST",
+                                requestId: requestId,
+                                rawData: rawData,
+                                options: options
+                            }, "*");
+                        } catch (error) {
+                            resolved || (resolved = !0, clearTimeout(timeout), window.removeEventListener("message", listener), 
+                            reject(new Error(`Failed to send snapshot request: ${error.message}`)));
                         }
-                    };
-                    window.addEventListener("message", listener);
-                    try {
-                        window.postMessage({
-                            type: "SENTIENCE_SNAPSHOT_REQUEST",
-                            requestId: requestId,
-                            rawData: rawData,
-                            options: options
-                        }, "*");
-                    } catch (error) {
-                        resolved || (resolved = !0, clearTimeout(timeout), window.removeEventListener("message", listener), 
-                        reject(new Error(`Failed to send snapshot request: ${error.message}`)));
-                    }
-                });
-            }(allRawElements, options);
-            if (!processed || !processed.elements) throw new Error("WASM processing returned invalid result");
+                    });
+                }(allRawElements, options);
+            } catch (error) {
+                processed = {
+                    elements: fallbackElementsFromRaw(allRawElements),
+                    raw_elements: allRawElements,
+                    duration: null
+                };
+            }
+            processed && processed.elements || (processed = {
+                elements: fallbackElementsFromRaw(allRawElements),
+                raw_elements: allRawElements,
+                duration: null
+            });
             let screenshot = null;
             options.screenshot && (screenshot = await function(options) {
                 return new Promise(resolve => {
