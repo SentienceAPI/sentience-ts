@@ -164,6 +164,17 @@ export interface Snapshot {
   modal_grids?: GridInfo[];
 }
 
+export interface StepHookContext {
+  stepId: string;
+  stepIndex: number;
+  goal: string;
+  attempt: number;
+  url?: string | null;
+  success?: boolean;
+  outcome?: string | null;
+  error?: string | null;
+}
+
 export interface SnapshotDiagnosticsMetrics {
   ready_state?: string | null;
   quiet_ms?: number | null;
@@ -221,6 +232,39 @@ export interface ActionResult {
     reason: string;
     recovery_hint?: string;
   };
+}
+
+export interface TabInfo {
+  tab_id: string;
+  url?: string | null;
+  title?: string | null;
+  is_active: boolean;
+}
+
+export interface TabListResult {
+  ok: boolean;
+  tabs: TabInfo[];
+  error?: string | null;
+}
+
+export interface TabOperationResult {
+  ok: boolean;
+  tab?: TabInfo | null;
+  error?: string | null;
+}
+
+export interface EvaluateJsRequest {
+  code: string;
+  max_output_chars?: number;
+  truncate?: boolean;
+}
+
+export interface EvaluateJsResult {
+  ok: boolean;
+  value?: any;
+  text?: string | null;
+  truncated?: boolean;
+  error?: string | null;
 }
 
 export interface WaitResult {

@@ -41,7 +41,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Page } from 'playwright';
-import { Snapshot } from './types';
+import {
+  EvaluateJsRequest,
+  EvaluateJsResult,
+  Snapshot,
+  TabInfo,
+  TabListResult,
+  TabOperationResult,
+} from './types';
 import { AssertContext, Predicate } from './verification';
 import { Tracer } from './tracing/tracer';
 import { TraceEventBuilder } from './utils/trace-event-builder';
@@ -329,7 +336,7 @@ export class AgentRuntime {
   /** Browser instance for taking snapshots */
   readonly browser: BrowserLike;
   /** Playwright Page for browser interaction */
-  readonly page: Page;
+  page: Page;
   /** Tracer for event emission */
   readonly tracer: Tracer;
 
@@ -343,6 +350,9 @@ export class AgentRuntime {
   private stepPreUrl: string | null = null;
   /** Best-effort download records (Playwright downloads) */
   private downloads: Array<Record<string, any>> = [];
+  /** Tab registry for tab operations */
+  private tabRegistry: Map<string, Page> = new Map();
+  private tabIds: WeakMap<Page, string> = new WeakMap();
 
   /** Failure artifact buffer (Phase 1) */
   private artifactBuffer: FailureArtifactBuffer | null = null;
@@ -378,6 +388,20 @@ export class AgentRuntime {
     let common = 0;
     for (const g of a2) if (setB.has(g)) common += 1;
     return (2 * common) / (a2.length + b2.length + 1e-9);
+  }
+
+  private static stringifyEvalValue(value: any): string {
+    if (value === null || value === undefined) {
+      return 'null';
+    }
+    if (Array.isArray(value) || typeof value === 'object') {
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    }
+    return String(value);
   }
 
   _recordOutcome(
@@ -545,6 +569,174 @@ export class AgentRuntime {
       await this.handleCaptchaIfNeeded(this.lastSnapshot, 'gateway');
     }
     return this.lastSnapshot;
+  }
+
+  /**
+   * Evaluate JavaScript in the page context.
+   */
+  async evaluateJs(request: EvaluateJsRequest): Promise<EvaluateJsResult> {
+    try {
+      const value = await this.page.evaluate(request.code);
+      const text = AgentRuntime.stringifyEvalValue(value);
+      const maxChars = request.max_output_chars ?? 4000;
+      const truncate = request.truncate ?? true;
+      let truncated = false;
+      let finalText = text;
+      if (truncate && finalText.length > maxChars) {
+        finalText = `${finalText.slice(0, maxChars)}...`;
+        truncated = true;
+      }
+      return {
+        ok: true,
+        value,
+        text: finalText,
+        truncated,
+      };
+    } catch (err: any) {
+      return { ok: false, error: String(err?.message ?? err) };
+    }
+  }
+
+  /**
+   * List open tabs in the current browser context.
+   */
+  async listTabs(): Promise<TabListResult> {
+    const context = (this.page as any)?.context?.();
+    if (!context || typeof context.pages !== 'function') {
+      return { ok: false, tabs: [], error: 'unsupported_capability' };
+    }
+    this.pruneTabs();
+    const pages: Page[] = context.pages();
+    const tabs: TabInfo[] = [];
+    for (const page of pages) {
+      const tab_id = this.ensureTabId(page);
+      let title: string | null = null;
+      try {
+        title = await page.title();
+      } catch {
+        title = null;
+      }
+      let url: string | null = null;
+      try {
+        url = page.url();
+      } catch {
+        url = null;
+      }
+      tabs.push({ tab_id, url, title, is_active: page === this.page });
+    }
+    return { ok: true, tabs };
+  }
+
+  /**
+   * Open a new tab and navigate to the URL.
+   */
+  async openTab(url: string): Promise<TabOperationResult> {
+    const context = (this.page as any)?.context?.();
+    if (!context || typeof context.newPage !== 'function') {
+      return { ok: false, error: 'unsupported_capability' };
+    }
+    this.pruneTabs();
+    try {
+      const page = await context.newPage();
+      await page.goto(url);
+      this.page = page;
+      const tab_id = this.ensureTabId(page);
+      let title: string | null = null;
+      try {
+        title = await page.title();
+      } catch {
+        title = null;
+      }
+      return { ok: true, tab: { tab_id, url: page.url?.() ?? url, title, is_active: true } };
+    } catch (err: any) {
+      return { ok: false, error: String(err?.message ?? err) };
+    }
+  }
+
+  /**
+   * Switch to an existing tab by id.
+   */
+  async switchTab(tab_id: string): Promise<TabOperationResult> {
+    this.pruneTabs();
+    const page = this.tabRegistry.get(tab_id);
+    if (!page) {
+      return { ok: false, error: `unknown tab_id: ${tab_id}` };
+    }
+    this.page = page;
+    try {
+      await page.bringToFront();
+    } catch {
+      // best-effort
+    }
+    let title: string | null = null;
+    try {
+      title = await page.title();
+    } catch {
+      title = null;
+    }
+    return {
+      ok: true,
+      tab: { tab_id, url: page.url?.() ?? null, title, is_active: true },
+    };
+  }
+
+  /**
+   * Close a tab by id.
+   */
+  async closeTab(tab_id: string): Promise<TabOperationResult> {
+    this.pruneTabs();
+    const page = this.tabRegistry.get(tab_id);
+    if (!page) {
+      return { ok: false, error: `unknown tab_id: ${tab_id}` };
+    }
+    let title: string | null = null;
+    try {
+      title = await page.title();
+    } catch {
+      title = null;
+    }
+    const wasActive = page === this.page;
+    try {
+      await page.close();
+    } catch (err: any) {
+      return { ok: false, error: String(err?.message ?? err) };
+    }
+    this.tabRegistry.delete(tab_id);
+    if (wasActive) {
+      const context = (page as any)?.context?.();
+      const pages: Page[] = context?.pages?.() ?? [];
+      if (pages.length > 0) {
+        this.page = pages[0];
+      }
+    }
+    return {
+      ok: true,
+      tab: { tab_id, url: page.url?.() ?? null, title, is_active: wasActive },
+    };
+  }
+
+  private ensureTabId(page: Page): string {
+    const existing = this.tabIds.get(page);
+    if (existing) {
+      return existing;
+    }
+    const tab_id = `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    this.tabIds.set(page, tab_id);
+    this.tabRegistry.set(tab_id, page);
+    return tab_id;
+  }
+
+  private pruneTabs(): void {
+    for (const [tab_id, page] of this.tabRegistry.entries()) {
+      try {
+        const isClosed = (page as any).isClosed?.();
+        if (isClosed) {
+          this.tabRegistry.delete(tab_id);
+        }
+      } catch {
+        // ignore
+      }
+    }
   }
 
   private isCaptchaDetected(snapshot: Snapshot): boolean {
