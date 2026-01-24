@@ -207,7 +207,8 @@ export class SentienceAgent {
     const stepId = randomUUID();
 
     // Emit step_start event
-    const currentUrl = this.browser.getPage()?.url() || 'unknown';
+    const pageRef = this.browser.getPage();
+    const currentUrl = typeof pageRef?.url === 'function' ? pageRef.url() : 'unknown';
     if (this.tracer) {
       this.tracer.emitStepStart(stepId, this.stepCount, goal, 0, currentUrl);
     }
