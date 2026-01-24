@@ -492,6 +492,17 @@ export class AgentRuntime {
     const hasEval = typeof (this as any).evaluateJs === 'function';
     const hasKeyboard = Boolean((this.page as any)?.keyboard);
     const hasDownloads = this.downloads.length >= 0;
+    let hasPermissions = false;
+    try {
+      const context =
+        typeof (this.page as any)?.context === 'function' ? (this.page as any).context() : null;
+      hasPermissions =
+        Boolean(context) &&
+        typeof context.clearPermissions === 'function' &&
+        typeof context.grantPermissions === 'function';
+    } catch {
+      hasPermissions = false;
+    }
     let hasFiles = false;
     if (this.toolRegistry) {
       hasFiles = Boolean(this.toolRegistry.get('read_file'));
@@ -502,6 +513,7 @@ export class AgentRuntime {
       downloads: hasDownloads,
       filesystem_tools: hasFiles,
       keyboard: hasKeyboard,
+      permissions: hasPermissions,
     };
   }
 

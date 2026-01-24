@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { AgentRuntime } from '../agent-runtime';
 import type { ActionResult, Snapshot, EvaluateJsResult } from '../types';
-import { ToolContext } from './context';
+import { ToolContext, UnsupportedCapabilityError } from './context';
 import { defineTool, ToolRegistry } from './registry';
 
 const snapshotSchema = z
@@ -81,6 +81,19 @@ const evaluateJsInput = z.object({
   code: z.string().min(1).max(8000),
   max_output_chars: z.number().int().min(1).max(20000).default(4000),
   truncate: z.boolean().default(true),
+});
+
+const grantPermissionsInput = z.object({
+  permissions: z.array(z.string()).min(1),
+  origin: z.string().optional(),
+});
+
+const clearPermissionsInput = z.object({});
+
+const setGeolocationInput = z.object({
+  latitude: z.number(),
+  longitude: z.number(),
+  accuracy: z.number().optional(),
 });
 
 function getRuntime(ctx: ToolContext | null, runtime?: ToolContext | AgentRuntime): AgentRuntime {
@@ -338,6 +351,88 @@ export function registerDefaultTools(
           max_output_chars: params.max_output_chars,
           truncate: params.truncate,
         });
+      },
+    })
+  );
+
+  registry.register(
+    defineTool<z.infer<typeof grantPermissionsInput>, ActionResult, ToolContext | null>({
+      name: 'grant_permissions',
+      description: 'Grant browser permissions for the current context.',
+      input: grantPermissionsInput,
+      output: actionResultSchema,
+      handler: async (ctx, params): Promise<ActionResult> => {
+        const runtimeRef = getRuntime(ctx, runtime);
+        if (ctx) {
+          ctx.require('permissions');
+        } else if (!runtimeRef.can('permissions')) {
+          throw new UnsupportedCapabilityError('permissions');
+        }
+        const context =
+          typeof (runtimeRef.page as any)?.context === 'function'
+            ? (runtimeRef.page as any).context()
+            : null;
+        if (!context) {
+          throw new Error('Permission context unavailable');
+        }
+        await context.grantPermissions(params.permissions, params.origin);
+        return { success: true, duration_ms: 0, outcome: 'dom_updated' };
+      },
+    })
+  );
+
+  registry.register(
+    defineTool<z.infer<typeof clearPermissionsInput>, ActionResult, ToolContext | null>({
+      name: 'clear_permissions',
+      description: 'Clear browser permissions for the current context.',
+      input: clearPermissionsInput,
+      output: actionResultSchema,
+      handler: async (ctx): Promise<ActionResult> => {
+        const runtimeRef = getRuntime(ctx, runtime);
+        if (ctx) {
+          ctx.require('permissions');
+        } else if (!runtimeRef.can('permissions')) {
+          throw new UnsupportedCapabilityError('permissions');
+        }
+        const context =
+          typeof (runtimeRef.page as any)?.context === 'function'
+            ? (runtimeRef.page as any).context()
+            : null;
+        if (!context) {
+          throw new Error('Permission context unavailable');
+        }
+        await context.clearPermissions();
+        return { success: true, duration_ms: 0, outcome: 'dom_updated' };
+      },
+    })
+  );
+
+  registry.register(
+    defineTool<z.infer<typeof setGeolocationInput>, ActionResult, ToolContext | null>({
+      name: 'set_geolocation',
+      description: 'Set geolocation for the current browser context.',
+      input: setGeolocationInput,
+      output: actionResultSchema,
+      handler: async (ctx, params): Promise<ActionResult> => {
+        const runtimeRef = getRuntime(ctx, runtime);
+        if (ctx) {
+          ctx.require('permissions');
+        } else if (!runtimeRef.can('permissions')) {
+          throw new UnsupportedCapabilityError('permissions');
+        }
+        const context =
+          typeof (runtimeRef.page as any)?.context === 'function'
+            ? (runtimeRef.page as any).context()
+            : null;
+        if (!context) {
+          throw new Error('Permission context unavailable');
+        }
+        await context.setGeolocation({
+          latitude: params.latitude,
+          longitude: params.longitude,
+          accuracy: params.accuracy,
+        });
+        return { success: true, duration_ms: 0, outcome: 'dom_updated' };
       },
     })
   );

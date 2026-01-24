@@ -84,7 +84,11 @@ export class ToolRegistry {
     name: string,
     payload: unknown,
     ctx: {
-      runtime?: { tracer?: { emit: (...args: any[]) => void }; stepId?: string; step_id?: string };
+      runtime?: {
+        tracer?: { emit: (...args: any[]) => void };
+        stepId?: string | null;
+        step_id?: string | null;
+      };
     } | null = null
   ): Promise<TOutput> {
     const start = Date.now();

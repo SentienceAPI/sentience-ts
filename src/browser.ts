@@ -12,6 +12,15 @@ import { SnapshotOptions } from './snapshot';
 import { IBrowser } from './protocols/browser-protocol';
 import { snapshot as snapshotFunction } from './snapshot';
 
+export type PermissionDefault = 'clear' | 'deny' | 'grant';
+
+export type PermissionPolicy = {
+  default?: PermissionDefault;
+  autoGrant?: string[];
+  geolocation?: { latitude: number; longitude: number; accuracy?: number };
+  origin?: string;
+};
+
 export function normalizeDomain(domain: string): string {
   const raw = domain.trim();
   let host = raw;
@@ -88,6 +97,7 @@ export class SentienceBrowser implements IBrowser {
   private _allowedDomains?: string[];
   private _prohibitedDomains?: string[];
   private _keepAlive: boolean;
+  private _permissionPolicy?: PermissionPolicy;
 
   /**
    * Create a new SentienceBrowser instance
@@ -121,7 +131,8 @@ export class SentienceBrowser implements IBrowser {
     deviceScaleFactor?: number,
     allowedDomains?: string[],
     prohibitedDomains?: string[],
-    keepAlive: boolean = false
+    keepAlive: boolean = false,
+    permissionPolicy?: PermissionPolicy
   ) {
     this._apiKey = apiKey;
 
@@ -162,6 +173,23 @@ export class SentienceBrowser implements IBrowser {
     this._allowedDomains = allowedDomains;
     this._prohibitedDomains = prohibitedDomains;
     this._keepAlive = keepAlive;
+    this._permissionPolicy = permissionPolicy;
+  }
+
+  private async applyPermissionPolicy(
+    context: BrowserContext,
+    policy: PermissionPolicy
+  ): Promise<void> {
+    const defaultPolicy = policy.default ?? 'clear';
+    if (defaultPolicy === 'clear' || defaultPolicy === 'deny') {
+      await context.clearPermissions();
+    }
+    if (policy.geolocation) {
+      await context.setGeolocation(policy.geolocation);
+    }
+    if (policy.autoGrant && policy.autoGrant.length > 0) {
+      await context.grantPermissions(policy.autoGrant, policy.origin);
+    }
   }
 
   async start(): Promise<void> {
@@ -275,6 +303,10 @@ export class SentienceBrowser implements IBrowser {
     }
 
     this.context = await chromium.launchPersistentContext(this.userDataDir, launchOptions);
+
+    if (this._permissionPolicy) {
+      await this.applyPermissionPolicy(this.context, this._permissionPolicy);
+    }
 
     this.page = this.context.pages()[0] || (await this.context.newPage());
 

@@ -259,6 +259,7 @@ export interface BackendCapabilities {
   downloads: boolean;
   filesystem_tools: boolean;
   keyboard: boolean;
+  permissions: boolean;
 }
 
 export interface EvaluateJsRequest {

@@ -2,7 +2,7 @@
  * Sentience TypeScript SDK - AI Agent Browser Automation
  */
 
-export { SentienceBrowser } from './browser';
+export { SentienceBrowser, PermissionPolicy } from './browser';
 export { snapshot, SnapshotOptions } from './snapshot';
 export { query, find, parseSelector } from './query';
 export {
