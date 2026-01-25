@@ -79,15 +79,16 @@
           case "SENTIENCE_SHOW_OVERLAY":
             !function(data) {
                 const {elements: elements, targetElementId: targetElementId} = data;
-                if (!elements || !Array.isArray(elements)) return;
+                if (!elements || "object" != typeof elements || "number" != typeof elements.length) return;
+                const elementsArray = Array.isArray(elements) ? elements : Array.from(elements);
                 removeOverlay();
                 const host = document.createElement("div");
                 host.id = OVERLAY_HOST_ID, host.style.cssText = "\n        position: fixed !important;\n        top: 0 !important;\n        left: 0 !important;\n        width: 100vw !important;\n        height: 100vh !important;\n        pointer-events: none !important;\n        z-index: 2147483647 !important;\n        margin: 0 !important;\n        padding: 0 !important;\n    ", 
                 document.body.appendChild(host);
                 const shadow = host.attachShadow({
                     mode: "closed"
-                }), maxImportance = Math.max(...elements.map(e => e.importance || 0), 1);
-                elements.forEach(element => {
+                }), maxImportance = Math.max(...elementsArray.map(e => e.importance || 0), 1);
+                elementsArray.forEach(element => {
                     const bbox = element.bbox;
                     if (!bbox) return;
                     const isTarget = element.id === targetElementId, isPrimary = element.visual_cues?.is_primary || !1, importance = element.importance || 0;

@@ -390,33 +390,46 @@
         return null;
     }
     function getRawHTML(root) {
-        const sourceRoot = root || document.body, clone = sourceRoot.cloneNode(!0);
-        [ "nav", "footer", "header", "script", "style", "noscript", "iframe", "svg" ].forEach(tag => {
-            clone.querySelectorAll(tag).forEach(el => {
-                el.parentNode && el.parentNode.removeChild(el);
-            });
-        });
-        const invisibleSelectors = [], walker = document.createTreeWalker(sourceRoot, NodeFilter.SHOW_ELEMENT, null, !1);
+        const sourceRoot = root || document.body, clone = sourceRoot.cloneNode(!0), unwantedTags = [ "script", "style", "noscript", "iframe", "svg" ], unwantedTagSet = new Set(unwantedTags);
+        function getChildIndex(node) {
+            let index = 0, sibling = node;
+            for (;sibling = sibling.previousElementSibling; ) index++;
+            return index;
+        }
+        function getElementPath(node, root) {
+            const path = [];
+            let current = node;
+            for (;current && current !== root && current.parentElement; ) path.unshift(getChildIndex(current)), 
+            current = current.parentElement;
+            return path;
+        }
+        const invisiblePaths = [], walker = document.createTreeWalker(sourceRoot, NodeFilter.SHOW_ELEMENT, null, !1);
         let node;
         for (;node = walker.nextNode(); ) {
             const tag = node.tagName.toLowerCase();
             if ("head" === tag || "title" === tag) continue;
+            if (unwantedTagSet.has(tag)) continue;
             const style = window.getComputedStyle(node);
-            if ("none" === style.display || "hidden" === style.visibility || 0 === node.offsetWidth && 0 === node.offsetHeight) {
-                let selector = tag;
-                if (node.id) selector = `#${node.id}`; else if (node.className && "string" == typeof node.className) {
-                    const classes = node.className.trim().split(/\s+/).filter(c => c);
-                    classes.length > 0 && (selector = `${tag}.${classes.join(".")}`);
-                }
-                invisibleSelectors.push(selector);
-            }
+            "none" !== style.display && "hidden" !== style.visibility || invisiblePaths.push(getElementPath(node, sourceRoot));
         }
-        invisibleSelectors.forEach(selector => {
-            try {
-                clone.querySelectorAll(selector).forEach(el => {
-                    el.parentNode && el.parentNode.removeChild(el);
-                });
-            } catch (e) {}
+        invisiblePaths.sort((a, b) => {
+            if (a.length !== b.length) return b.length - a.length;
+            for (let i = a.length - 1; i >= 0; i--) if (a[i] !== b[i]) return b[i] - a[i];
+            return 0;
+        }), invisiblePaths.forEach(path => {
+            const el = function(root, path) {
+                let current = root;
+                for (const index of path) {
+                    if (!current || !current.children || index >= current.children.length) return null;
+                    current = current.children[index];
+                }
+                return current;
+            }(clone, path);
+            el && el.parentNode && el.parentNode.removeChild(el);
+        }), unwantedTags.forEach(tag => {
+            clone.querySelectorAll(tag).forEach(el => {
+                el.parentNode && el.parentNode.removeChild(el);
+            });
         });
         clone.querySelectorAll("a[href]").forEach(link => {
             const href = link.getAttribute("href");
@@ -1178,17 +1191,21 @@
         }, autoDisableTimeout)), window.sentience_stopRecording = stopRecording, stopRecording;
     }
     function showOverlay(elements, targetElementId = null) {
-        elements && Array.isArray(elements) && window.postMessage({
+        if (!elements || "object" != typeof elements || "number" != typeof elements.length) return;
+        const elementsArray = Array.isArray(elements) ? elements : Array.from(elements);
+        window.postMessage({
             type: "SENTIENCE_SHOW_OVERLAY",
-            elements: elements,
+            elements: elementsArray,
             targetElementId: targetElementId,
             timestamp: Date.now()
         }, "*");
     }
     function showGrid(grids, targetGridId = null) {
-        grids && Array.isArray(grids) && window.postMessage({
+        if (!grids || "object" != typeof grids || "number" != typeof grids.length) return;
+        const gridsArray = Array.isArray(grids) ? grids : Array.from(grids);
+        window.postMessage({
             type: "SENTIENCE_SHOW_GRID_OVERLAY",
-            grids: grids,
+            grids: gridsArray,
             targetGridId: targetGridId,
             timestamp: Date.now()
         }, "*");
