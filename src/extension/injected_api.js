@@ -29,6 +29,18 @@
         selector: "#g-recaptcha",
         provider: "recaptcha"
     }, {
+        selector: ".recaptcha-checkbox-border",
+        provider: "recaptcha"
+    }, {
+        selector: "#recaptcha-anchor-label",
+        provider: "recaptcha"
+    }, {
+        selector: '[class*="recaptcha" i]',
+        provider: "recaptcha"
+    }, {
+        selector: '[id*="recaptcha" i]',
+        provider: "recaptcha"
+    }, {
         selector: "[data-sitekey]",
         provider: "unknown"
     }, {
@@ -73,6 +85,12 @@
     }, {
         selector: 'iframe[title*="captcha" i]',
         provider: "unknown"
+    }, {
+        selector: '[class*="captcha" i]',
+        provider: "unknown"
+    }, {
+        selector: '[id*="captcha" i]',
+        provider: "unknown"
     } ];
     function addEvidence(list, value) {
         value && (list.length >= 5 || list.push(value));
@@ -115,26 +133,6 @@
             arkose: 0,
             awswaf: 0
         };
-        function isVisibleElement(el) {
-            try {
-                if (!el) return !1;
-                const style = window.getComputedStyle(el);
-                if ("none" === style.display || "hidden" === style.visibility) return !1;
-                const opacity = parseFloat(style.opacity || "1");
-                if (!Number.isNaN(opacity) && opacity <= .01) return !1;
-                if (!el.getClientRects || 0 === el.getClientRects().length) return !1;
-                const rect = el.getBoundingClientRect();
-                if (rect.width < 8 || rect.height < 8) return !1;
-                const vw = window.innerWidth || document.documentElement.clientWidth || 0;
-                const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-                if (vw && vh) {
-                    if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= vh || rect.left >= vw) return !1;
-                }
-                return !0;
-            } catch (e) {
-                return !1;
-            }
-        }
         try {
             const iframes = document.querySelectorAll("iframe");
             for (const iframe of iframes) {
