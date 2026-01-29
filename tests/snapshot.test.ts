@@ -145,3 +145,36 @@ describe('Element ML Fields', () => {
     expect(element).not.toHaveProperty('ml_score');
   });
 });
+
+describe('Snapshot ML Rerank Metadata', () => {
+  it('should accept snapshot with ml_rerank metadata', () => {
+    const snap = {
+      status: 'success' as const,
+      url: 'https://example.com',
+      elements: [],
+      ml_rerank: {
+        enabled: true,
+        applied: false,
+        reason: 'low_confidence',
+        candidate_count: 25,
+        top_probability: 0.42,
+        min_confidence: 0.6,
+        is_high_confidence: false,
+        tags: {
+          repeated: true,
+          sponsored_ish: true,
+          non_sponsored: false,
+          pos: true,
+          occ: true,
+          vocc: false,
+          short: true,
+          action_ish: false,
+          nav_ish: false,
+        },
+      },
+    };
+
+    expect(snap.ml_rerank.enabled).toBe(true);
+    expect(snap.ml_rerank.is_high_confidence).toBe(false);
+  });
+});
